@@ -21,10 +21,10 @@ DBGOPT = -g
 SOURCES = mqLogEv.c
 
 #AROWN = libmsgcat.a
-LSOWN = mqutil msgcat inih sogen
+#LSOWN = mqutil msgcat inih sogen
 
 MQLIB = use
-XML2  = use
+#XML2  = use
 
 # ------------------------------------------------------------------------------
 # main source
