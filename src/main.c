@@ -36,10 +36,33 @@
 
 int main(int argc, const char* argv[] )
 {
-  int sysRc ;
+  MQTMC2 trigData ;
 
-  sysRc = handleCmdLn( argc, argv ) ;
-  if( sysRc != 0 ) goto _door ;
+  int sysRc = 0 ;
+
+  /************************************************************************/  
+  /*  this program can be called by command line or by trigger monitor    */
+  /*  first find out how program has been called and set attributes       */
+  /************************************************************************/  
+  // -------------------------------------------------------
+  // handle command line call
+  // -------------------------------------------------------
+  if( strlen(argv[1]) != sizeof(MQTMC2) )   
+  {                                        
+    sysRc = handleCmdLn( argc, argv ) ;   
+    if( sysRc != 0 ) goto _door ;        
+  }                 
+  // -------------------------------------------------------
+  // handle trigger monitor call
+  // -------------------------------------------------------
+  else            
+  {              
+    memcpy( &trigData, argv[1], sizeof(MQTMC2) ) ;  
+    logTrigData( trigData ) ;
+    memcpy( qmgrName   , trigData.QMgrName, MQ_Q_MGR_NAME_LENGTH      );
+    memcpy( qName      , trigData.QName   , MQ_Q_NAME_LENGTH          );
+    memcpy( iniFileName, trigData.UserData, sizeof(trigData.UserData) );
+  }           
 
 _door :
 
