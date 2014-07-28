@@ -1,0 +1,17 @@
+<!ELEMENT event (selector)+>
+
+<!ELEMENT selector (monitor)+ >
+<!ATTLIST selector
+  id ID #REQUIRED
+>
+
+<!ELEMENT monitor (level)>
+<!ATTLIST  level ( "MQEV_LEV_EVAL" |
+                   "MQEV_LEV_IGN"  |
+                   "MQEV_LEV_INF"  |
+                   "MQEV_LEV_WAR"  |
+                   "MQEV_LEV_ERR"  |
+                   "MQEV_LEV_NA"   ) "MQEV_LEV_NA"
+>
+
+

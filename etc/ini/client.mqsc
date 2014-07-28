@@ -1,0 +1,14 @@
+clear  ql(system.admin.qmgr.event)
+delete ql(system.admin.qmgr.event)
+define qr(SYSTEM.ADMIN.QMGR.EVENT) defpsist(yes) +
+             put(enabled)  +
+             rname(SYSTEM.ADMIN.QMGR.EVENT)  +
+             xmitq(xq.admt02.00)  +
+             rqmname(admt02)
+
+alter qmgr AUTHOREV(enabled) +
+           inhibtev(enabled) +
+           localev(enabled) +
+           remoteev(enabled) +
+           strstpev(enabled)
+
