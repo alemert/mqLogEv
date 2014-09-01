@@ -9,7 +9,14 @@
 //#include "msgCat.h"
 //#include "mqLogUtil.h"
 
-#include "mqUtil.h"
-#include "mqReason.h"
-#include "mqCall.h"
+#include "mqbase.h"
+#include "mqreason.h"
 
+const char progname[] = "mqLogEv" ;
+
+/******************************************************************************/
+/*   P R O T O T Y P E S                     */
+/******************************************************************************/
+int cleanupLog( const char* qmgrName,  
+                const char* qName   ,  
+                const char* iniFile );

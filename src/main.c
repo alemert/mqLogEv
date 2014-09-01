@@ -9,11 +9,19 @@
 // ---------------------------------------------------------
 // system
 // ---------------------------------------------------------
+#include <string.h>
+
+// ---------------------------------------------------------
+// MQ
+// ---------------------------------------------------------
+#include <cmqc.h>
 
 // ---------------------------------------------------------
 // own 
 // ---------------------------------------------------------
 #include "main.h"
+#include <ctl.h>
+#include <mqdump.h>
 
 /******************************************************************************/
 /*   D E F I N E S                                                            */
@@ -37,8 +45,18 @@
 int main(int argc, const char* argv[] )
 {
   MQTMC2 trigData ;
+  char qmgrName[MQ_Q_MGR_NAME_LENGTH] ;
+  char qName[MQ_Q_NAME_LENGTH] ;
+  char iniFileName[255] ;
 
   int sysRc = 0 ;
+
+
+  // -------------------------------------------------------
+  // initialize      
+  // -------------------------------------------------------
+  memset( qmgrName, ' ', MQ_Q_MGR_NAME_LENGTH );
+  memset( qName   , ' ', MQ_Q_NAME_LENGTH     );
 
   /************************************************************************/  
   /*  this program can be called by command line or by trigger monitor    */
@@ -58,11 +76,13 @@ int main(int argc, const char* argv[] )
   else            
   {              
     memcpy( &trigData, argv[1], sizeof(MQTMC2) ) ;  
-    logTrigData( trigData ) ;
+    dumpTrigData( &trigData ) ;
     memcpy( qmgrName   , trigData.QMgrName, MQ_Q_MGR_NAME_LENGTH      );
     memcpy( qName      , trigData.QName   , MQ_Q_NAME_LENGTH          );
     memcpy( iniFileName, trigData.UserData, sizeof(trigData.UserData) );
   }           
+
+  initLogging("/var/mqm/errors/appl/mqLogEv.log",DBG);
 
 _door :
 

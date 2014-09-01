@@ -3,8 +3,14 @@
 /*                       M Q   L O G G E R   E V E N T                        */
 /*                                                                            */
 /******************************************************************************/
-#include "mqLogEv.h"
 
+/******************************************************************************/
+/*                              I N C L U D E S                               */
+/******************************************************************************/
+
+// ---------------------------------------------------------
+// system
+// ---------------------------------------------------------
 #include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -14,7 +20,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-//#include <bhs.h>
+// ---------------------------------------------------------
+// own
+// ---------------------------------------------------------
+#include <ctl.h>
+#include <msgcat/lgstd.h>
+#include <msgcat/lgmqm.h>
+
+// ---------------------------------------------------------
+// local
+// ---------------------------------------------------------
+#include "mqLogEv.h"
 
 /******************************************************************************/
 /*   D E F I N E S                                                            */
@@ -65,7 +81,9 @@ int mqCopyLog( const char* orgFile, const char* cpyFile );
 /*                                   M A I N                                  */
 /*                                                                            */
 /******************************************************************************/
-int main(int argc, char* argv[] )
+int cleanupLog( const char* qmgrName,  
+                const char* qName   ,  
+                const char* iniFile )
 {
   MQTMC2 trigData ;
 
@@ -82,9 +100,11 @@ int main(int argc, char* argv[] )
   char opt          ; // clm option   
 //struct stat ls    ; // stat structure for ls -ald
 
+#if(0)
   char qmgrName[MQ_Q_MGR_NAME_LENGTH] ;
   char qName[MQ_Q_NAME_LENGTH] ;
   char iniFileName[255] ;
+#endif
 
   extern char* optarg ;
   extern int   optind, optopt ;
@@ -94,68 +114,9 @@ int main(int argc, char* argv[] )
 //comp_t  *cp = NULL;    // compiler descriptro (ini file)
 //data_t  *tree = NULL;  // resolve structure from ini file
 
-  memset( qmgrName, ' ', MQ_Q_MGR_NAME_LENGTH );
-  memset( qName   , ' ', MQ_Q_NAME_LENGTH     );
 
-  int  rc ;
+  int  sysRc = 0;
   char rcBuff[64] ;
-
-  // -------------------------------------------------------
-  // setup logging
-  // -------------------------------------------------------
-  setupLogging(LDBG,"/var/mqm/errors/appl/mqLogEv.log",2);
-  logger(LM_SY_STARTING,argv[0]) ;
-
-  // -------------------------------------------------------
-  // command line 
-  // -------------------------------------------------------
-  if( argc == 1L ) 
-  {
-    logger(LM_SY_CML_WRONG_NR,argc) ;
-    logger(LM_SY_ABORTING,argv[0],"cml") ;
-    exit(1) ;
-  }
-
-  // -------------------------------------------------------
-  // it is a command line call
-  // -------------------------------------------------------
-  if( strlen(argv[1]) != sizeof(MQTMC2) )
-  {
-    while( (opt = getopt(argc, argv, "m:q:i:")) != -1 )
-    {
-      switch( opt )
-      {
-        // -------------------------------------------------
-        // Get a Queue Manager Name from Command line
-        // -------------------------------------------------
-        case 'm': strcpy( qmgrName, optarg ) ; break ;
-
-        // -------------------------------------------------
-        // get a queue name
-        // -------------------------------------------------
-        case 'q': strcpy( qName, optarg ) ; break ;
-        case 'i': strcpy( iniFileName, optarg) ; break ;
-        case ':': 
-        case '?': usage(argv[0]), exit(1) ; 
-      }
-    }
-    if( qmgrName[0] == ' ' ) { usage(argv[0]), exit(1) ; }
-    if( qName[0]    == ' ' ) 
-    {
-      memcpy( qName, LOGGER_QUEUE, strlen( LOGGER_QUEUE ) ) ; 
-    }
-  }
-  // -------------------------------------------------------
-  // call from trigger monitor
-  // -------------------------------------------------------
-  else
-  {
-    memcpy( &trigData, argv[1], sizeof(MQTMC2) ) ;  
-    logTrigData( trigData ) ;
-    memcpy( qmgrName   , trigData.QMgrName, MQ_Q_MGR_NAME_LENGTH      );
-    memcpy( qName      , trigData.QName   , MQ_Q_NAME_LENGTH          );
-    memcpy( iniFileName, trigData.UserData, sizeof(trigData.UserData) );
-  }
 
   // -------------------------------------------------------
   // read the ini file
@@ -171,65 +132,71 @@ int main(int argc, char* argv[] )
   // -------------------------------------------------------
   // connect to queue manager
   // -------------------------------------------------------
-  rc =  mqConnect(qmgrName,     // queue manager                 
-                  &Hcon     );  // connection handle            
-
-  switch( rc )
-  {
-    case MQRC_NONE             : break ;
-    case MQRC_ALREADY_CONNECTED: logger(LM_MQ_ALREADY_CONNECTED) ; 
-                                 break ;
-    default                    : logger(LM_SY_ABORTING, argv[0], 
-                                                        "QM connect failed");
-                                 exit(1) ;
-  }
+  sysRc =  mqConn( (char*) qmgrName,      // queue manager          
+                           &Hcon  );      // connection handle            
+                                          //
+  switch( sysRc )                         //
+  {                                       //
+    case MQRC_NONE :     break ;          // OK
+    case MQRC_Q_MGR_NAME_ERROR :          // queue manager does not exists
+    {                                     //
+      logger(LMQM_UNKNOWN_QMGR,qmgrName); //
+      goto _door;                         //
+    }                                     //
+    default : goto _door;                 // error will be logged in mqConn
+  }                                       //
 
   // -------------------------------------------------------
   // open queue
   // -------------------------------------------------------
   memcpy( qDscr.ObjectName, qName, MQ_Q_NAME_LENGTH ); 
 
-  rc = mqOpenObject( Hcon                  , // connection handle
-                     &qDscr                , // queue descriptor
-                     MQOO_INPUT_EXCLUSIVE  | 
-                     MQOO_SET              |
-                     MQOO_FAIL_IF_QUIESCING, // open options
-                     &Hqueue );              // queue handle
+  sysRc = mqOpenObject( Hcon                  , // connection handle
+                        &qDscr                , // queue descriptor
+                        MQOO_INPUT_EXCLUSIVE  | 
+                        MQOO_SET              |
+                        MQOO_FAIL_IF_QUIESCING, // open options
+                        &Hqueue );              // queue handle
 
-  switch( rc )
+  switch( sysRc )
   {
     case MQRC_NONE : break ;
-    default        : logger(LM_SY_ABORTING, argv[0],
-                            "MQ open failed");
-                                 exit(1) ;
+    default        : goto _door;
   }
 
   // -------------------------------------------------------
   // set trigger on
   // -------------------------------------------------------
-  rc = mqSetTrigger( Hcon   ,     // connection handle
-                     Hqueue );    // queue handle
+  sysRc = mqSetTrigger( Hcon   ,     // connection handle
+                        Hqueue );    // queue handle
 
-  if( rc != MQRC_NONE )
+  switch( sysRc )
   {
-    logger(LM_MQ_SET_TRIGGER_ERR, trigData.QName ) ;
+    case MQRC_NONE : break ;
+    default        : goto _door;
   }
 
   // -------------------------------------------------------
-  // fork process for rcdmqimg , log rcdmqimg output to log
+  // fork process for RCDMQIMG, log RCDMQIMG output to log
   // -------------------------------------------------------
-  rcdMqImg( qmgrName ); // exec rcdmqimg
+  rcdMqImg( qmgrName ); // exec RCDMQIMG
 
   // -------------------------------------------------------
   // read all messages from the queue, 
-  // get back only the last one for analyse
+  // get back only the last one for analyze
   // -------------------------------------------------------
   logPath[0]  = '\0' ;
   currLog[0]  = '\0' ;
   recLog[0]   = '\0' ;
   mediaLog[0] = '\0' ;
-  rc = pcfReadQueue( Hcon, Hqueue, logPath, currLog, recLog, mediaLog ) ;
-  switch( rc )
+
+  sysRc = pcfReadQueue( Hcon      , 
+                        Hqueue    ,
+                        logPath   , 
+                        currLog   , 
+                        recLog    , 
+                        mediaLog );
+  switch( sysRc )
   {
     // -----------------------------------------------------
     // continue work, at least one message was found
@@ -247,34 +214,33 @@ int main(int argc, char* argv[] )
     //   - quit
     // -----------------------------------------------------
     case MQRC_NO_MSG_AVAILABLE : 
-    {
-      logger( LM_MQ_NO_MSG_FOUND, qName ) ;
+    {    
+      logger( LMQM_QUEUE_EMPTY, qName ) ;
       // ---------------------------------------------------
       // close queue
       // ---------------------------------------------------
-      rc = mqCloseObject( Hcon    ,      // connection handle
-                          &Hqueue );     // queue handle
+      sysRc = mqCloseObject( Hcon    ,      // connection handle
+                            &Hqueue );     // queue handle
   
-      switch( rc )
+      switch( sysRc )
       {
         case MQRC_NONE : break ;
-        default        : logger(LM_SY_ABORTING, argv[0], "MQ close failed");
-                         exit(1) ;
+        default        : logger( LSTD_GEN_SYS, progname );
+                         goto _door ; 
       }
   
       // ---------------------------------------------------
       // disconnect from queue manager
       // ---------------------------------------------------
-      rc =  mqDiscon( &Hcon );  // connection handle            
-      switch( rc )
+      sysRc =  mqDisc( &Hcon );        // connection handle            
+      switch( sysRc )
       {
         case MQRC_NONE : break ;
-        default        : logger(LM_SY_ABORTING, argv[0], 
-                                "QM disconnect failed");
-                                     exit(1) ;
+        default        :  logger( LSTD_GEN_SYS, progname );
+                           goto _door ; 
       }
     
-      exit(0) ;
+      goto _door ;
     }
  
     // -----------------------------------------------------
@@ -282,25 +248,25 @@ int main(int argc, char* argv[] )
     // -----------------------------------------------------
     default: 
     {
-      mqReasonId2Str( rc, rcBuff ) ;
-      logger( LM_MQ_GENERAL_FAT, "pcfReadQueue", rc, rcBuff ) ;
-      exit(1) ;
+      logger( LSTD_GEN_SYS, progname );
+      goto _door ; 
     }
   }
+
+  logger( LMQM_LOG_NAME, "CURRENT", currLog  );
+  logger( LMQM_LOG_NAME, "RECORD" , recLog   );
+  logger( LMQM_LOG_NAME, "MEDIA"  , mediaLog );
+  logger( LMQM_LOG_NAME, "PATH"   , logPath  );
 
   if( logPath[0]  != '/' ||
       currLog[0]  != 'S' ||
       recLog[0]   != 'S' ||
       mediaLog[0] != 'S'  )
   {
-    logger( LM_MQ_LOG_DATA_NOT_VALID ) ;
+    logger( LMQM_LOG_NAME_INVALIDE ) ;
+    goto _door;
   }
         
-  logger( LM_MQ_CURRLOG , currLog  );
-  logger( LM_MQ_RECLOG  , recLog   );
-  logger( LM_MQ_MEDIALOG, mediaLog );
-  logger( LM_MQ_LOG_PATH, logPath  );
-
   if( mqOlderLog(recLog,mediaLog) > 0)
   { 
     strcpy( oldLog, recLog );
@@ -310,17 +276,17 @@ int main(int argc, char* argv[] )
     strcpy( oldLog, mediaLog );
   }
 
-  logger( LM_MQ_OLDEST_LOG, oldLog ) ;
+  logger( LMQM_LOG_NAME, "OLDEST", oldLog ) ;
 
   // -------------------------------------------------------
-  // remmove old logs
+  // remove old logs
   // -------------------------------------------------------
   mqCleanLog( logPath, oldLog ) ;
 
   // -------------------------------------------------------
   // send reset qmgr type(advancedlog) to command server
   // -------------------------------------------------------
-  rc = mqResetQmgrLog(Hcon) ;
+  sysRc = mqResetQmgrLog(Hcon) ;
   mqReasonId2Str( rc, rcBuff ) ; 
 
   // -------------------------------------------------------
@@ -407,7 +373,9 @@ int main(int argc, char* argv[] )
                                  exit(1) ;
   }
 
-  exit(0) ;
+  _door:
+
+  return sysRc ;
 }
 
 /******************************************************************************/
