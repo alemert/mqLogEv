@@ -97,37 +97,8 @@ int cleanupLog( const char* qmgrName,
   char recLog[16]   ; // record  log name, max of 12+1
   char mediaLog[16] ; // media   log name, max of 12+1
   char oldLog[16]   ; // oldest  log name, max of 12+1 equals media or record
-  char opt          ; // clm option   
-//struct stat ls    ; // stat structure for ls -ald
 
-#if(0)
-  char qmgrName[MQ_Q_MGR_NAME_LENGTH] ;
-  char qName[MQ_Q_NAME_LENGTH] ;
-  char iniFileName[255] ;
-#endif
-
-  extern char* optarg ;
-  extern int   optind, optopt ;
-
-//fncrc_t  ack;          // return vector from ini file
-//sess_t  *sp = NULL;    // session descriptor (ini file)
-//comp_t  *cp = NULL;    // compiler descriptro (ini file)
-//data_t  *tree = NULL;  // resolve structure from ini file
-
-
-  int  sysRc = 0;
-  char rcBuff[64] ;
-
-  // -------------------------------------------------------
-  // read the ini file
-  // -------------------------------------------------------
-// fnc_init(&ack, stderr) ;   // initialization of function control code
-                              //    reason codes, description
-// if((rc = sess_new(&ack, stdin, stdout, stderr, &sp)) != FNC_OKAY) 
-// {
-     // fehler
-// }
- 
+  MQLONG  sysRc = 0;
 
   // -------------------------------------------------------
   // connect to queue manager
@@ -183,7 +154,7 @@ int cleanupLog( const char* qmgrName,
 
   // -------------------------------------------------------
   // read all messages from the queue, 
-  // get back only the last one for analyze
+  // get back only the last one for analyzing
   // -------------------------------------------------------
   logPath[0]  = '\0' ;
   currLog[0]  = '\0' ;
@@ -287,93 +258,42 @@ int cleanupLog( const char* qmgrName,
   // send reset qmgr type(advancedlog) to command server
   // -------------------------------------------------------
   sysRc = mqResetQmgrLog(Hcon) ;
-  mqReasonId2Str( rc, rcBuff ) ; 
 
-  // -------------------------------------------------------
-  // reset was not possible, no further processing
-  // -------------------------------------------------------
-  if( rc != MQRC_NONE )  
+  switch(sysRc)
   {
-    if( rc == MQRC_CMD_SERVER_NOT_AVAILABLE ) 
-    {
-      logger(LM_MQ_CMD_STOPPED ) ;
-    }
-    else 
-    {
-      logger( LM_MQ_GENERAL_ERR, "reset qmgr type(advancelog)", rc, rcBuff ) ;
-    }
+    case MQRC_NONE: break ;
+    // ------------------------------------------------------
+    // reset was not possible, no further processing
+    // -----------------------------------------------------
+    case MQRC_CMD_SERVER_NOT_AVAILABLE : goto _door ;
+    default: goto _door;
   }
-  // -------------------------------------------------------
-  // reset was ok, backup queue manager
-  // -------------------------------------------------------
-  else
-  {
 
-#if(0)
-    // -----------------------------------------------------
-    // read all messages from the queue, 
-    // get back only the last one for analyse,
-    // i.g. there should be only one message from reset qmgr advance log
-    // -----------------------------------------------------
-    pcfReadQueue( Hcon, Hqueue, logPath, currLog, recLog, mediaLog ) ;
-
-    logger( LM_MQ_CURRLOG , currLog  );
-    logger( LM_MQ_RECLOG  , recLog   );
-    logger( LM_MQ_MEDIALOG, mediaLog );
-    logger( LM_MQ_LOG_PATH, logPath  );
-
-    if( mqOlderLog(recLog,mediaLog) > 0)
-    { 
-      strcpy( oldLog, recLog );
-    }
-    else
-    { 
-      strcpy( oldLog, mediaLog );
-    }
-
-    logger( LM_MQ_OLDEST_LOG, oldLog ) ;
-    
-    // -----------------------------------------------------
-    // copy files for backup
-    // -----------------------------------------------------
-    rc = mqBackupLog( logPath, bckPath, oldLog, currLog ) ;
-    if( rc == 0 )
-    {
-      logger( LM_MQ_LOG_BACKUP_OK ) ;
-    }
-    else
-    {
-      logger( LM_MQ_LOG_BACKUP_ERR ) ;
-    }
-#endif
-  }
+  _door:
 
   // -------------------------------------------------------
   // close queue
   // -------------------------------------------------------
-  rc = mqCloseObject( Hcon    ,      // connection handle
-                      &Hqueue );     // queue handle
+  sysRc = mqCloseObject( Hcon    ,      // connection handle
+                         &Hqueue );     // queue handle
 
-  switch( rc )
+  switch( sysRc )
   {
     case MQRC_NONE : break ;
-    default        : logger(LM_SY_ABORTING, argv[0], "MQ close failed");
-                     exit(1) ;
+    default        : logger( LSTD_GEN_SYS, progname );
+                     break;
   }
 
   // -------------------------------------------------------
   // disconnect from queue manager
   // -------------------------------------------------------
-  rc =  mqDiscon( &Hcon );  // connection handle            
-  switch( rc )
+  sysRc =  mqDisc( &Hcon );    // connection handle            
+  switch( sysRc )
   {
     case MQRC_NONE : break ;
-    default        : logger(LM_SY_ABORTING, argv[0], 
-                            "QM disconnect failed");
-                                 exit(1) ;
+    default        : logger( LSTD_GEN_SYS, progname );
+                     break;
   }
-
-  _door:
 
   return sysRc ;
 }
@@ -410,6 +330,7 @@ int pcfReadQueue( MQHCONN  Hcon    ,  // connection handle
     // -------------------------------------------------------
     msg = (PMQVOID) malloc(512*sizeof(char));
     rc = mqReadQueue( Hcon, Hqueue, msg,  512, &msgDscr);
+    // to be replaced by mqGet
   
     // -------------------------------------------------------
     // check if reading from a queue was ok
