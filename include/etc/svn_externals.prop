@@ -1,0 +1,6 @@
+msgcat http://syspver1/svn/develop/misc/rollout/elf/include/msgcat
+ctl.h  http://syspver1/svn/develop/misc/rollout/elf/include/ctl.h
+mqbase.h    http://syspver1/svn/develop/misc/rollout/elf/include/mqbase.h
+mqreason.h  http://syspver1/svn/develop/misc/rollout/elf/include/mqreason.h
+mqdump.h    http://syspver1/svn/develop/misc/rollout/elf/include/mqdump.h
+mqtype.h    http://syspver1/svn/develop/misc/rollout/elf/include/mqtype.h

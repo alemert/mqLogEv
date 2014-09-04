@@ -19,6 +19,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <time.h>
 
 // ---------------------------------------------------------
 // own
@@ -301,41 +302,59 @@ int cleanupLog( const char* qmgrName,
 /******************************************************************************/
 /*   R E A D   A   P C F   M E S S A G E   F R O M   A   Q U E U E            */
 /******************************************************************************/
-int pcfReadQueue( MQHCONN  Hcon    ,  // connection handle   
-                  MQHOBJ   Hqueue  ,  // queue handle   
-                  char*    logPath ,  // logpath, max of 82+1 incl. log file 
-                  char*    currLog ,  // current log name, max of 12+1 
-                  char*    recLog  ,  // record  log name, max of 12+1
-                  char*    mediaLog)  // media   log name, max of 12+1
-{
-  PMQVOID msg ;                       // message buffer 
-  MQMD    msgDscr = {MQMD_DEFAULT};   // msg Desriptor
-
-  PMQCFH  pPCFh   ;    // PCF (header) pointer
-  PMQCHAR pPCFcmd ;    // PCF command pointer
-  PMQCFST pPCFstr ;    // PCF string pointer
-
-  char _buff_[64] ;    // carbage buffer
-  int  rc         ;    // general return code
-  int  cnt        ;    // message counter
-
-  logFuncCall() ;
-
+MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle   
+                     MQHOBJ   Hqueue  , // queue handle   
+                     char*    logPath , // logpath, max of 82+1 incl. log file 
+                     char*    currLog , // current log name, max of 12+1 
+                     char*    recLog  , // record  log name, max of 12+1
+                     char*    mediaLog) // media   log name, max of 12+1
+{                                       // 
+  PMQVOID msg     ;                     // message buffer 
+  MQMD    md      = {MQMD_DEFAULT} ;    // message descriptor
+  MQGMO   gmo     = {MQGMO_DEFAULT};    // get message options
+  MQLONG  msgSize = 512 ;               //
+                                        //
+  PMQCFH  pPCFh   ;                     // PCF (header) pointer
+  PMQCHAR pPCFcmd ;                     // PCF command pointer
+  PMQCFST pPCFstr ;                     // PCF string pointer
+                                        //
+  char     _buff_[64] ;                 // garbage buffer
+  int      sysRc      = MQRC_NONE;      // general return code
+  MQLONG   mqreason   ;                 // MQ return code
+  int      cnt        ;                 // message counter
+                                        //
+  logFuncCall() ;                       //
+                                        //
+  // ---------------------------------------------------------
+  // prepare get message options 
+  //   and message descriptor for reading
+  // ---------------------------------------------------------
+  gmo.Version      = MQGMO_VERSION_2;    // avoid need to reset message id and
+  gmo.MatchOptions = MQMO_NONE      ;    // corelation id after every MQGET
+              //
+  // ---------------------------------------------------------
+  // read all messages from queue and count them
+  // ---------------------------------------------------------
   cnt = 0 ;
   while(1)
   {
     cnt++ ;
     // -------------------------------------------------------
-    // read the message from the queue
+    // read a single message from the queue
     // -------------------------------------------------------
-    msg = (PMQVOID) malloc(512*sizeof(char));
-    rc = mqReadQueue( Hcon, Hqueue, msg,  512, &msgDscr);
-    // to be replaced by mqGet
+    msg = (PMQVOID) malloc(msgSize*sizeof(char));
+    mqreason = mqGet( Hcon    ,     // connection handle
+                      Hqueue  ,     // object(queue) handle
+                      msg     ,     // message buffer
+                      &msgSize,     // message size
+                      &md     ,     // message descriptor 
+                      gmo     ,     // get message options
+                      500    );     // wait interval (to adjust gmo)
   
     // -------------------------------------------------------
-    // check if reading from a queue was ok
+    // check if reading from a queue was OK
     // -------------------------------------------------------
-    switch( rc )
+    switch( mqreason )
     {
       // -----------------------------------------------------
       // stay in the loop, read next message
@@ -350,12 +369,17 @@ int pcfReadQueue( MQHCONN  Hcon    ,  // connection handle
         // ---------------------------------------------------
         // no message at all was found
         // ---------------------------------------------------
-        if( cnt == 1 ) return MQRC_NO_MSG_AVAILABLE ;
+        if( cnt == 1 ) 
+	{
+	  sysRc = MQRC_NO_MSG_AVAILABLE ;
+          goto _door;
+	}
 
         // ---------------------------------------------------
         // at least one message was found
         // ---------------------------------------------------
-        return MQRC_NONE ;
+        sysRc = MQRC_NONE ;
+	break;
       }
   
       // -----------------------------------------------------
@@ -363,17 +387,16 @@ int pcfReadQueue( MQHCONN  Hcon    ,  // connection handle
       // -----------------------------------------------------
       default: 
       {
-        mqReasonId2Str( rc, _buff_ ) ;
-        logger( LM_MQ_GENERAL_ERR, "Read PCF", rc, _buff_ ) ;
-        return rc ;
+	sysRc = mqreason ;
+        goto  _door; ;
       }
     }
   
-    if( memcmp( msgDscr.Format, MQFMT_EVENT, sizeof(msgDscr.Format) ) != 0 )
+    if( memcmp( md.Format, MQFMT_EVENT, sizeof(md.Format) ) != 0 )
     {
-      logger( LM_MQ_WRONG_MSG_TYPE, msgDscr.Format, MQFMT_EVENT ) ;
-      logger( LM_SY_ABORTING, __FILE__, "wrong message type") ;
-      exit(1) ;
+      sysRc = MQRC_FORMAT_ERROR ;
+      logMQCall( CRI, "MQGET", sysRc ) ;
+      goto _door;
     }
   
     // -------------------------------------------------------
@@ -381,14 +404,15 @@ int pcfReadQueue( MQHCONN  Hcon    ,  // connection handle
     // set Command pointer after PCF pointer
     // -------------------------------------------------------
     pPCFh   = (PMQCFH) msg ;
-    logPcfHeader( pPCFh ) ;
+    dumpMqStruct( MQFMT_PCF, pPCFh, NULL ) ;
   
     pPCFcmd = (PMQCHAR) (pPCFh+1) ;
 
     while( pPCFh->ParameterCount-- > 0 )
     {
       pPCFstr = (PMQCFST) pPCFcmd ;
-      logPcfString( pPCFstr, pPCFh->ParameterCount ) ;
+     
+      dumpMqStruct( "PCFSTR", pPCFstr, NULL ) ;  // pPCFh->ParameterCount ) ;
 
       switch( pPCFh->ParameterCount )
       {
@@ -397,7 +421,6 @@ int pcfReadQueue( MQHCONN  Hcon    ,  // connection handle
         // ---------------------------------------------------
         case 4: break ;
 
-#if(1)
         // ---------------------------------------------------
         // current log
         // ---------------------------------------------------
@@ -430,16 +453,17 @@ int pcfReadQueue( MQHCONN  Hcon    ,  // connection handle
                 break ;
 
         default: break ;
-#endif
       }
       pPCFcmd += pPCFstr->StrucLength ;
     }
   }
-  return MQRC_NONE ;
+
+  _door:
+  return sysRc ;
 }
 
 /******************************************************************************/
-/*   U S A G E                       */ 
+/*   U S A G E                             */ 
 /******************************************************************************/
 void usage(const char* prg)
 {
@@ -527,38 +551,35 @@ int mqCleanLog( const char* logPath, const char* oldestLog )
 
   while( NULL != (dirEntry = readdir(dir) ) )
   {
-    if( strcmp(dirEntry->d_name,  "." ) == 0  ||
-        strcmp(dirEntry->d_name,  "..")  == 0 )
-    {
-    //logger(LM_SY_SOME_STR, dirEntry->d_name );
-      continue ;
-    }
-    if( S_ISDIR(fMode.st_mode) ) logger(LM_SY_DBG_MARKER) ;
-
-    if( mqCheckLogName( dirEntry->d_name ) != 0 )
-    {
-      logger( LM_MQ_CHECK_LOG_NAME, dirEntry->d_name ) ;
-      continue ;
-    }
-    else
-    {
-      logger( LM_MQ_CHECK_LOG_TIME, dirEntry->d_name, oldestLog ) ;
-      if( mqOlderLog( dirEntry->d_name, oldestLog ) > 0 )
-      {
-        strcpy(fileName,logPath) ; 
-        strcat(fileName,"/");
-        strcat(fileName,dirEntry->d_name);
-        logger( LM_MQ_REMOVE_LOG, fileName ) ;
-        unlink(fileName);
-        usleep(1000) ;
-      }
-      else
-      {
-        logger( LM_MQ_KEEP_LOG, dirEntry->d_name ) ;
-      }
-      
-    }
-  } 
+    if( strcmp(dirEntry->d_name,  "." ) == 0 ||    // skip directories
+        strcmp(dirEntry->d_name,  "..") == 0  )    //
+    {                                              //
+      continue;                                    //
+    }                                              //
+    // if( S_ISDIR(fMode.st_mode) ) logger(LM_SY_DBG_MARKER) ;
+                                                   //
+    if( mqCheckLogName( dirEntry->d_name ) != 0 )  // file does not match 
+    {                                              // naming standards for 
+      continue;                                    // transactional logs
+    }                                              //
+                                                   //
+    logger( LM_MQ_CHECK_LOG_TIME, dirEntry->d_name, oldestLog ) ;
+                                                   //
+    if( mqOlderLog( dirEntry->d_name, oldestLog ) > 0 )
+    {                                              // log is an old one, 
+      strcpy(fileName,logPath);                    //   remove it
+      strcat(fileName,"/");                        //
+      strcat(fileName,dirEntry->d_name);           // functionality for moving
+      logger( LM_MQ_REMOVE_LOG, fileName );        //  instand of removing has to be applied
+      unlink(fileName);                            //
+      usleep(1000);                                //
+    }                                              //
+    bis hier her
+    else                                           //
+    {                                              //
+      logger( LM_MQ_KEEP_LOG, dirEntry->d_name );  //
+    }                                              //
+  }                                                //
   return 0 ;
 }
 
@@ -646,7 +667,7 @@ void rcdMqImg( const char* qmgr )
   // -------------------------------------------------------
   if( pipe(stdErr) < 0 )
   {
-    logger( LM_SY_OPEN_PIPE_FAILED ) ;
+    logger( LSTD_OPEN_PIPE_FAILED ) ;
   }
   else
   {
@@ -657,7 +678,7 @@ void rcdMqImg( const char* qmgr )
       // fork failed: 
       //    do not quit, trigger has to be reactevated
       // ---------------------------------------------------
-      case -1: logger( LM_SY_FORK_FAILED ) ;
+      case -1: logger( LSTD_FORK_FAILED ) ;
                break ;
 
       // ---------------------------------------------------
@@ -668,7 +689,7 @@ void rcdMqImg( const char* qmgr )
       // ---------------------------------------------------
       case  0: 
       {
-        logger( LM_SY_FORK_CHILD )   ; 
+        logger(LSTD_FORK_CHILD  )   ; 
         // -------------------------------------------------
         // handle file descriptors
         // -------------------------------------------------
@@ -699,8 +720,7 @@ void rcdMqImg( const char* qmgr )
         // -------------------------------------------------
         // there is no chance to get that far 
         // -------------------------------------------------
-        logger( LM_SY_EXEC_ERR , "rcdmqimg" ) ;
-        logger( LM_SY_ABORTING , "rcdmqimg" ) ;
+        logger(  LSTD_GEN_CRI, "rcdmqimg" ) ;
  
         exit(0) ;                      
       }
@@ -712,7 +732,7 @@ void rcdMqImg( const char* qmgr )
       // ---------------------------------------------------
       default: 
       {
-        logger( LM_SY_FORK_PARENT, pid );
+        logger( LSTD_FORK_PARENT  );
         // -------------------------------------------------
         // setup queue manager name
         // -------------------------------------------------
@@ -721,9 +741,9 @@ void rcdMqImg( const char* qmgr )
         close( stdErr[1]   ) ;             
 
         // -------------------------------------------------
-        // redirect output from cild (rcdmqimg) to log file
+        // redirect output from child (RCDMQIMG) to log file
         // -------------------------------------------------
-        logger( LM_ST_MULTI_LINE_OPEN, "rcdmqimg" ) ;          
+        logger( LSYS_MULTILINE_START, "RCDMQIMG" ) ;          
                                 
         i=0  ;                           
         while( 1 )                        // read for ever
@@ -735,7 +755,7 @@ void rcdMqImg( const char* qmgr )
           {                               //
             pipeBuff[i] = '\0' ;          // replace '\n' by '\0' 
             i=0;                          // start new line
-            logger( LM_ST_MULTI_LINE_TXT, pipeBuff ); 
+            logger( LSYS_MULTILINE_ADD, pipeBuff ); 
             continue ;                    // write full line to log
           }
           i++ ; 
@@ -743,9 +763,9 @@ void rcdMqImg( const char* qmgr )
         if( c != '\n' )                   // if last line is not ended by '\n'
         {                                 // 
           pipeBuff[i] = '\0' ;            // write it to log file
-          logger( LM_ST_MULTI_LINE_TXT, pipeBuff ) ;
+          logger( LSYS_MULTILINE_ADD, pipeBuff ); 
         }
-        logger( LM_ST_MULTI_LINE_CLOSE, "rcdmqimg" ) ;          
+        logger( LSYS_MULTILINE_END, "RCDMQIMG" ) ;          
 
         // -------------------------------------------------
         // allow child to free (disable zombi)
@@ -755,11 +775,11 @@ void rcdMqImg( const char* qmgr )
         rc  &= 127 ;
         if( rc == 0 )
         {
-          logger( LM_SY_CHILD_ENDED_OK, "rcdmqimg", pid ) ;
+          logger(  LSTD_CHILD_ENDED_OK, "rcdmqimg" );
         }
         else
         {
-          logger(LM_SY_CHILD_ENDED_ERR,"rcdmqimg", pid, rc);
+          logger(  LSTD_CHILD_ENDED_ERR, "rcdmqimg" );
         }
         break ;
       }
@@ -802,7 +822,7 @@ int mqBackupLog( const char* logPath,   // original log path
                        S_IRGRP|S_IWGRP|S_IXGRP );
   if( rc < 0 )
   {
-    logger( LM_SY_MKDIR_ERR, copyFile ) ;
+    logger( LSTD_MAKE_DIR_FAILED , copyFile ) ;
     return 1 ;
   }
 
@@ -814,7 +834,7 @@ int mqBackupLog( const char* logPath,   // original log path
     sprintf( origFile, "/%s/S%07d.LOG",logPath,logId ) ;
     sprintf( copyFile, "/%s/%s/S%07d.LOG",bckPath,timeStr,logId ) ;
 
-    logger(LM_MQ_BACKUP_LOG, origFile, copyFile) ;
+    logger( LSTD_FILE_COPIED, origFile, copyFile) ;
 
     rc = mqCopyLog( origFile, copyFile );
     if( rc != 0 ) return rc ;
@@ -837,11 +857,11 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
   int rc ;
 
   // -------------------------------------------------------
-  // open origina file for reading
+  // open original file for reading
   // -------------------------------------------------------
   if( (orgFd = open( orgFile, O_RDONLY) ) == -1 ) 
   {
-    logger( LM_SY_OPEN_FILE, orgFile ) ;
+    logger( LSTD_OPEN_FILE_FAILED, orgFile ) ;
     return 1 ;
   }
 
@@ -851,12 +871,12 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
   if( (cpyFd = open( cpyFile, O_WRONLY|O_CREAT, 
                               S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP )) == -1 )
   {
-    logger( LM_SY_OPEN_FILE, cpyFile ) ;
+    logger(  LSTD_OPEN_FILE_FAILED, cpyFile ) ;
     return 1 ;
   }
 
   // -------------------------------------------------------
-  // copy file in 4k blocks, since pagesize is 4k
+  // copy file in 4k blocks, since page size is 4k
   // -------------------------------------------------------
   while( 1 )
   {
@@ -865,10 +885,12 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
     {
       case COPY_BUFF_LNG: write( cpyFd, copyBuff, COPY_BUFF_LNG );
                           break ;
+
       case 0            : close(orgFd) ;
                           close(cpyFd) ;
                           return 0 ;
-      default           : logger(LM_SY_READ_FILE_ERR, orgFile);
+
+      default           : logger( LSTD_ERR_READING_FILE, orgFile);
                           write( cpyFd, copyBuff, rc );
                           close(orgFd) ;
                           close(cpyFd) ;
