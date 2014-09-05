@@ -15,8 +15,7 @@
 const char progname[] = "mqLogEv" ;
 
 /******************************************************************************/
-/*   P R O T O T Y P E S                     */
+/*   P R O T O T Y P E S                           */
 /******************************************************************************/
 int cleanupLog( const char* qmgrName,  
-                const char* qName   ,  
-                const char* iniFile );
+                const char* qName  );

@@ -82,8 +82,7 @@ int mqCopyLog( const char* orgFile, const char* cpyFile );
 /*                                                                            */
 /******************************************************************************/
 int cleanupLog( const char* qmgrName,  
-                const char* qName   ,  
-                const char* iniFile )
+                const char* qName  )
 {
   MQTMC2 trigData ;
 
@@ -98,7 +97,8 @@ int cleanupLog( const char* qmgrName,
   char mediaLog[16] ; // media   log name, max of 12+1
   char oldLog[16]   ; // oldest  log name, max of 12+1 equals media or record
 
-  MQLONG  sysRc = 0;
+  MQLONG sysRc = MQRC_NONE ;
+  MQLONG locRc = MQRC_NONE ;
 
   // -------------------------------------------------------
   // connect to queue manager
@@ -274,10 +274,10 @@ int cleanupLog( const char* qmgrName,
   // -------------------------------------------------------
   // close queue
   // -------------------------------------------------------
-  sysRc = mqCloseObject( Hcon    ,      // connection handle
+  locRc = mqCloseObject( Hcon    ,      // connection handle
                          &Hqueue );     // queue handle
 
-  switch( sysRc )
+  switch( locRc )
   {
     case MQRC_NONE : break ;
     default        : logger( LSTD_GEN_SYS, progname );
@@ -287,12 +287,17 @@ int cleanupLog( const char* qmgrName,
   // -------------------------------------------------------
   // disconnect from queue manager
   // -------------------------------------------------------
-  sysRc =  mqDisc( &Hcon );    // connection handle            
-  switch( sysRc )
+  locRc =  mqDisc( &Hcon );    // connection handle            
+  switch( locRc )
   {
     case MQRC_NONE : break ;
     default        : logger( LSTD_GEN_SYS, progname );
                      break;
+  }
+
+  if( sysRc == MQRC_NONE )
+  {
+    sysRc = locRc ;
   }
 
   return sysRc ;

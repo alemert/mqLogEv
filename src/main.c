@@ -62,6 +62,11 @@ int main(int argc, const char* argv[] )
   /*  this program can be called by command line or by trigger monitor    */
   /*  first find out how program has been called and set attributes       */
   /************************************************************************/  
+  if( argc == 1 )
+  {
+    usage();
+    goto _door;
+  }
   // -------------------------------------------------------
   // handle command line call
   // -------------------------------------------------------
@@ -82,7 +87,13 @@ int main(int argc, const char* argv[] )
     memcpy( iniFileName, trigData.UserData, sizeof(trigData.UserData) );
   }           
 
-  initLogging("/var/mqm/errors/appl/mqLogEv.log",DBG);
+  sysRc = initLogging("/var/mqm/errors/appl/mqLogEv.log",DBG);
+
+  if( sysRc != 0 ) goto _door ;
+
+  sysRc = cleanupLog( qmgrName, qName );
+
+  if( sysRc != MQRC_NONE ) goto _door ;
 
 _door :
 
