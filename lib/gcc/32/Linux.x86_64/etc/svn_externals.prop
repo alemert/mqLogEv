@@ -1,0 +1,6 @@
+libmsgcat.a  http://syspver1/svn//develop/misc/rollout/elf/lib/gcc/32/Linux.x86_64/libmsgcat.a
+libmsgcat.so http://syspver1/svn//develop/misc/rollout/elf/lib/gcc/32/Linux.x86_64/libmsgcat.so
+libmqutil.a  http://syspver1/svn//develop/misc/rollout/elf/lib/gcc/32/Linux.x86_64/libmqutil.a
+libmqutil.so http://syspver1/svn//develop/misc/rollout/elf/lib/gcc/32/Linux.x86_64/libmqutil.so
+libsogen.a  http://syspver1/svn//develop/misc/rollout/elf/lib/gcc/32/Linux.x86_64/libsogen.a
+libsogen.so http://syspver1/svn//develop/misc/rollout/elf/lib/gcc/32/Linux.x86_64/libsogen.so
