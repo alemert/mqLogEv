@@ -53,12 +53,12 @@
 /*   P R O T O T Y P E S                                                      */
 /******************************************************************************/
 void usage() ;
-int pcfReadQueue( MQHCONN  Hcon     ,  // connection handle
-                  MQHOBJ   Hqueue   ,  // queue handle
-                  char*    logPath  ,  // logpath, max of 82+1 incl. log file 
-                  char*    currLog  ,  // current log name, max of 12+1 
-                  char*    recLog   ,  // record  log name, max of 12+1
-                  char*    mediaLog);  // media   log name, max of 12+1
+MQLONG pcfReadQueue( MQHCONN  Hcon     ,  // connection handle
+                     MQHOBJ   Hqueue   ,  // queue handle
+                     char*    logPath  ,  // logpath, max of 82+1 incl. log file 
+                     char*    currLog  ,  // current log name, max of 12+1 
+                     char*    recLog   ,  // record  log name, max of 12+1
+                     char*    mediaLog);  // media   log name, max of 12+1
 
 MQLONG mqCloseDisonnect( MQHCONN  Hcon    ,  // connection handle   
                          PMQHOBJ  Hqueue );  // queue handle   
