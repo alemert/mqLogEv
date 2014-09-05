@@ -60,15 +60,14 @@ int pcfReadQueue( MQHCONN  Hcon     ,  // connection handle
                   char*    recLog   ,  // record  log name, max of 12+1
                   char*    mediaLog);  // media   log name, max of 12+1
 
-void mqCloseDisonnect( const char* prg  ,  // program name
-                       MQHCONN  Hcon    ,  // connection handle   
-                       PMQHOBJ  Hqueue );  // queue handle   
+MQLONG mqCloseDisonnect( MQHCONN  Hcon    ,  // connection handle   
+                         PMQHOBJ  Hqueue );  // queue handle   
 
 int mqOlderLog( const char *log1, const char *log2) ;
 int mqLogName2Id( const char* log );
 int mqCleanLog( const char* logPath, const char* oldestLog );
 int mqCheckLogName( const char* log) ;
-void rcdMqImg( const char* qmgr ) ;
+int rcdMqImg( const char* qmgr ) ;
 
 int mqBackupLog( const char* logPath ,   // original log path
                  const char* bckPath ,   // backup log path
@@ -93,7 +92,7 @@ int cleanupLog( const char* qmgrName,
   MQHOBJ   Hqueue ;                 // queue handle   
 
   char logPath[124] ; // logpath, theoratical max of 82+1 (incl. log file name)
-  char bckPath[124] ; // backup path, path were logs are to be backuped
+//char bckPath[124] ; // backup path, path were logs are to be backuped
   char currLog[16]  ; // current log name, max of 12+1 
   char recLog[16]   ; // record  log name, max of 12+1
   char mediaLog[16] ; // media   log name, max of 12+1
@@ -318,7 +317,6 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
   PMQCHAR pPCFcmd ;                     // PCF command pointer
   PMQCFST pPCFstr ;                     // PCF string pointer
                                         //
-  char     _buff_[64] ;                 // garbage buffer
   int      sysRc      = MQRC_NONE;      // general return code
   MQLONG   mqreason   ;                 // MQ return code
   int      cnt        ;                 // message counter
@@ -463,19 +461,18 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
 }
 
 /******************************************************************************/
-/*   U S A G E                             */ 
+/*   U S A G E                                         */ 
 /******************************************************************************/
-void usage(const char* prg)
-{
-  printf("usage   %s -m <qmgr> [ -q <queue.name>] -i <file.ini> \n", prg); 
-}
+
+// usage()
+// usage function moved to cmdln.c
 
 /******************************************************************************/
 /*   O L D E R   T R A N S A C T I O N A L   L O G                            */
 /*                                                                            */
-/*   finds out which of log1 and log2 ist older from transacional view        */
+/*   finds out which of log1 and log2 is older from transaction point of view */
 /*                                                                            */
-/*   return code                                                        */
+/*   return code                                                              */
 /*               -1 if log2 is older                                          */
 /*               +1 if log1 is older                                          */
 /*                0 if log1 equals log2                                       */
@@ -563,21 +560,18 @@ int mqCleanLog( const char* logPath, const char* oldestLog )
       continue;                                    // transactional logs
     }                                              //
                                                    //
-    logger( LM_MQ_CHECK_LOG_TIME, dirEntry->d_name, oldestLog ) ;
-                                                   //
     if( mqOlderLog( dirEntry->d_name, oldestLog ) > 0 )
-    {                                              // log is an old one, 
-      strcpy(fileName,logPath);                    //   remove it
+    {                                              // log is not needed any more
+      logger(LMQM_INACTIVE_LOG,dirEntry->d_name);  //   remove it
+      strcpy(fileName,logPath);                    //
       strcat(fileName,"/");                        //
       strcat(fileName,dirEntry->d_name);           // functionality for moving
-      logger( LM_MQ_REMOVE_LOG, fileName );        //  instand of removing has to be applied
-      unlink(fileName);                            //
-      usleep(1000);                                //
-    }                                              //
-    bis hier her
+      unlink(fileName);                            //  instead of removing 
+      usleep(1000);                                //  transactional logs
+    }                                              //  has to be applied
     else                                           //
     {                                              //
-      logger( LM_MQ_KEEP_LOG, dirEntry->d_name );  //
+      logger(LMQM_ACTIVE_LOG,dirEntry->d_name);    //   keep the log
     }                                              //
   }                                                //
   return 0 ;
@@ -611,44 +605,43 @@ int mqCheckLogName( const char* log)
 /******************************************************************************/
 /*   M Q   C L O S E   A N D   D I S C O N N E C T                            */
 /******************************************************************************/
-void mqCloseDisonnect( const char* prg ,  // program name
-                       MQHCONN  Hcon   ,  // connection handle   
-                       PMQHOBJ  Hqueue )  // queue handle   
+MQLONG mqCloseDisonnect( MQHCONN  Hcon   ,  // connection handle   
+                         PMQHOBJ  Hqueue )  // queue handle   
 {
-  int rc ;
+  int sysRc ;
 
   logFuncCall() ;
 
   // ---------------------------------------------------
   // close queue
   // ---------------------------------------------------
-  rc = mqCloseObject( Hcon    ,      // connection handle
+  sysRc = mqCloseObject( Hcon    ,      // connection handle
                       Hqueue );     // queue handle
 
-  switch( rc )
+  switch( sysRc )
   {
     case MQRC_NONE : break ;
-    default        : logger(LM_SY_ABORTING, prg, "MQ close failed");
-                     exit(1) ;
+    default        : goto _door ;
   }
 
   // ---------------------------------------------------
   // disconnect from queue manager
   // ---------------------------------------------------
-  rc =  mqDiscon( &Hcon );  // connection handle            
-  switch( rc )
+  sysRc =  mqDisc( &Hcon );  // connection handle            
+  switch( sysRc )
   {
     case MQRC_NONE : break ;
-    default        : logger(LM_SY_ABORTING, prg, 
-                            "QM disconnect failed");
-                                 exit(1) ;
+    default        : goto _door ;
   }
+
+  _door:
+  return sysRc ;
 }
 
 /******************************************************************************/
 /*   R E C O R D   M Q   I M A G E                                            */
 /******************************************************************************/
-void rcdMqImg( const char* qmgr )
+int rcdMqImg( const char* qmgr )
 {
   logFuncCall() ;
 
@@ -660,131 +653,139 @@ void rcdMqImg( const char* qmgr )
   char pipeBuff[PIPE_BUF] ;  // string buffer for pipe
 
   int i  ;
-  int rc ;
+  int sysRc = 0;
 
   // -------------------------------------------------------
   // fork process for rcdmqimg incl. pipes
   // -------------------------------------------------------
-  if( pipe(stdErr) < 0 )
+  sysRc = pipe(stdErr) ;
+  if( sysRc < 0 )
   {
     logger( LSTD_OPEN_PIPE_FAILED ) ;
+    goto _door ;
   }
-  else
+
+  pid = (int) fork() ;  
+  switch(pid)
   {
-    pid = (int) fork() ;  
-    switch(pid)
+    // -----------------------------------------------------
+    // fork failed: 
+    //    do not quit, trigger has to be reactivated
+    // -----------------------------------------------------
+    case -1: 
     {
+      logger( LSTD_FORK_FAILED ) ;
+      sysRc = -1 ;
+      goto _door ;
+    }
+
+    // -----------------------------------------------------
+    // child:
+    //    map stderr to pipe
+    //    close read end of the pipe, 
+    //    exec rcdmqimg
+    // -----------------------------------------------------
+    case  0: 
+    {
+      logger(LSTD_FORK_CHILD  )   ; 
       // ---------------------------------------------------
-      // fork failed: 
-      //    do not quit, trigger has to be reactevated
+      // handle file descriptors
       // ---------------------------------------------------
-      case -1: logger( LSTD_FORK_FAILED ) ;
-               break ;
+      dup2( stdErr[1], STDERR_FILENO ) ;      
+      close( stdErr[0]    ) ;     
+      close( stdErr[1]    ) ;      
 
       // ---------------------------------------------------
-      // child:
-      //    map std err to pipe
-      //    close read end of the pipe, 
-      //    exec rcdmqimg
+      // setup queue manager name
       // ---------------------------------------------------
-      case  0: 
+      memcpy( qmgrStr, qmgr, MQ_Q_MGR_NAME_LENGTH ) ;  
+      for(i=0;i<MQ_Q_MGR_NAME_LENGTH;i++) 
       {
-        logger(LSTD_FORK_CHILD  )   ; 
-        // -------------------------------------------------
-        // handle file descriptors
-        // -------------------------------------------------
-        dup2( stdErr[1], STDERR_FILENO ) ;      
-        close( stdErr[0]    ) ;     
-        close( stdErr[1]    ) ;      
-
-        // -------------------------------------------------
-        // setup queue manager name
-        // -------------------------------------------------
-        memcpy( qmgrStr, qmgr, MQ_Q_MGR_NAME_LENGTH ) ;  
-        for(i=0;i<MQ_Q_MGR_NAME_LENGTH;i++) 
+        if( qmgrStr[i] == ' ' )
         {
-          if( qmgrStr[i] == ' ' )
-          {
-            qmgrStr[i] = '\0' ;
-            break   ;
-          }
+          qmgrStr[i] = '\0' ;
+          break   ;
         }
+      }
 
-        // -------------------------------------------------
-        // exec
-        // -------------------------------------------------
-        execl( "/opt/mqm/bin/rcdmqimg", "rcdmqimg", "-m", qmgrStr ,
-                                                    "-t", "all"   , 
-                                                    "*" , NULL   );
+      // ---------------------------------------------------
+      // exec
+      // ---------------------------------------------------
+      execl( "/opt/mqm/bin/rcdmqimg", "rcdmqimg", "-m", qmgrStr ,
+                                                  "-t", "all"   , 
+                                                  "*" , NULL   );
 
-        // -------------------------------------------------
-        // there is no chance to get that far 
-        // -------------------------------------------------
-        logger(  LSTD_GEN_CRI, "rcdmqimg" ) ;
+      // -------------------------------------------------
+      // there is no chance to get that far 
+      // -------------------------------------------------
+      logger(  LSTD_GEN_CRI, "rcdmqimg" ) ;
  
-        exit(0) ;                      
-      }
+      exit(0) ;                      
+    }
+
+    // -----------------------------------------------------
+    // parent:
+    //    close write end of the pipe
+    //    read from the pipe and write to log
+    // -----------------------------------------------------
+    default: 
+    {
+      logger( LSTD_FORK_PARENT  );
+      // ---------------------------------------------------
+      // setup queue manager name
+      // ---------------------------------------------------
+      dup2( stdErr[0], STDIN_FILENO ) ;             
+      close( stdErr[0]   ) ;             
+      close( stdErr[1]   ) ;             
 
       // ---------------------------------------------------
-      // parent:
-      //    close write end of the pipe
-      //    read from the pipe and write to log
+      // redirect output from child (RCDMQIMG) to log file
       // ---------------------------------------------------
-      default: 
-      {
-        logger( LSTD_FORK_PARENT  );
-        // -------------------------------------------------
-        // setup queue manager name
-        // -------------------------------------------------
-        dup2( stdErr[0], STDIN_FILENO ) ;             
-        close( stdErr[0]   ) ;             
-        close( stdErr[1]   ) ;             
-
-        // -------------------------------------------------
-        // redirect output from child (RCDMQIMG) to log file
-        // -------------------------------------------------
-        logger( LSYS_MULTILINE_START, "RCDMQIMG" ) ;          
-                                
-        i=0  ;                           
-        while( 1 )                        // read for ever
-        {                                 // 
-          rc=read( STDIN_FILENO, &c, 1 ); // read from the pipe
-          if( (int)rc == 0) break ;       // stop if EOF (will work only 
-          pipeBuff[i] = c ;               //       on nonblocked device)
-          if( c == '\n' )                 // if eol
-          {                               //
-            pipeBuff[i] = '\0' ;          // replace '\n' by '\0' 
-            i=0;                          // start new line
-            logger( LSYS_MULTILINE_ADD, pipeBuff ); 
-            continue ;                    // write full line to log
-          }
-          i++ ; 
-        }                                 //        
-        if( c != '\n' )                   // if last line is not ended by '\n'
-        {                                 // 
-          pipeBuff[i] = '\0' ;            // write it to log file
+      logger( LSYS_MULTILINE_START, "RCDMQIMG" ) ;          
+                              
+      i=0  ;                           
+      while( 1 )                          // read for ever
+      {                                   // 
+        sysRc=read( STDIN_FILENO, &c, 1 );// read from the pipe
+        if( (int)sysRc == 0) break ;      // stop if EOF (will work only 
+        pipeBuff[i] = c ;                 //       on nonblocked device)
+        if( c == '\n' )                   // if eol
+        {                                 //
+          pipeBuff[i] = '\0' ;            // replace '\n' by '\0' 
+          i=0;                            // start new line
           logger( LSYS_MULTILINE_ADD, pipeBuff ); 
-        }
-        logger( LSYS_MULTILINE_END, "RCDMQIMG" ) ;          
-
-        // -------------------------------------------------
-        // allow child to free (disable zombi)
-        // -------------------------------------------------
-        waitpid(pid,&rc,WNOHANG) ;
-        rc >>=   8 ;
-        rc  &= 127 ;
-        if( rc == 0 )
-        {
-          logger(  LSTD_CHILD_ENDED_OK, "rcdmqimg" );
-        }
-        else
-        {
-          logger(  LSTD_CHILD_ENDED_ERR, "rcdmqimg" );
-        }
-        break ;
+          continue ;                      // write full line to log
+        }                                 //
+        i++ ;                             //
+      }                                   //        
+      if( c != '\n' )                     // if last line is not ended by '\n'
+      {                                   // 
+        pipeBuff[i] = '\0' ;              // write it to log file
+        logger( LSYS_MULTILINE_ADD, pipeBuff ); 
       }
+      logger( LSYS_MULTILINE_END, "RCDMQIMG" ) ;          
+
+      // ---------------------------------------------------
+      // allow child to free (disable zombi)
+      // ---------------------------------------------------
+      waitpid(pid,&sysRc,WNOHANG) ;
+      sysRc >>=   8 ;
+      sysRc  &= 127 ;
+      if( sysRc == 0 )
+      {
+        logger(  LSTD_CHILD_ENDED_OK, "rcdmqimg" );
+      }
+      else
+      {
+        logger(  LSTD_CHILD_ENDED_ERR, "rcdmqimg", sysRc );
+	goto _door;
+      }
+      break ;
     }
   }
+
+  _door:
+  return sysRc ;
 }
 
 /******************************************************************************/
