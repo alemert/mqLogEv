@@ -12,7 +12,11 @@
 #include "mqbase.h"
 #include "mqreason.h"
 
+#ifdef C_MODULE_MQLOGEV
 const char progname[] = "mqLogEv" ;
+#else
+extern const char progname[] ;
+#endif
 
 /******************************************************************************/
 /*   P R O T O T Y P E S                           */

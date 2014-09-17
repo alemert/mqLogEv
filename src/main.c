@@ -23,6 +23,11 @@
 #include <ctl.h>
 #include <mqdump.h>
 
+// ---------------------------------------------------------
+// local
+// ---------------------------------------------------------
+#include <mqLogEv.h>
+
 /******************************************************************************/
 /*   D E F I N E S                                                            */
 /******************************************************************************/
@@ -74,6 +79,10 @@ int main(int argc, const char* argv[] )
   {                                        
     sysRc = handleCmdLn( argc, argv ) ;   
     if( sysRc != 0 ) goto _door ;        
+    memcpy( qName   ,  getStrAttr( "queue" ), strlen( getStrAttr( "queue" ) ));
+    memcpy( qmgrName,  getStrAttr( "qmgr"  ), strlen( getStrAttr( "qmgr"  ) ));
+//  qName[   strlen(qName)   ] = ' ' ;
+//  qmgrName[strlen(qmgrName)] = ' ' ;
   }                 
   // -------------------------------------------------------
   // handle trigger monitor call

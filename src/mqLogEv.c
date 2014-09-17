@@ -3,6 +3,7 @@
 /*                       M Q   L O G G E R   E V E N T                        */
 /*                                                                            */
 /******************************************************************************/
+#define C_MODULE_MQLOGEV
 
 /******************************************************************************/
 /*                              I N C L U D E S                               */
@@ -374,9 +375,9 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
         // ---------------------------------------------------
         if( cnt == 1 ) 
 	{
-	  sysRc = MQRC_NO_MSG_AVAILABLE ;
           goto _door;
 	}
+	sysRc = MQRC_NONE ;
 
         // ---------------------------------------------------
         // at least one message was found
