@@ -2,6 +2,19 @@
 /*                                                                            */
 /*                       M Q   L O G G E R   E V E N T                        */
 /*                                                                            */
+/*   functions:                                                               */
+/*     - cleanupLog                                                           */
+/*     - pcfReadQueue                                                    */
+/*     - mqOlderLog                                                  */
+/*     - mqLogName2Id                                              */
+/*     - mqCleanLog                                                */
+/*     - mqCheckLogName                                          */
+/*     - mqCloseDisconnect                                      */
+/*     - rcdMqImg                                */
+/*     - mqBackupLog                            */
+/*     - mqCopyLog                              */
+/*     - getMqInstPath                              */
+/*                          */
 /******************************************************************************/
 #define C_MODULE_MQLOGEV
 
@@ -61,14 +74,14 @@ MQLONG pcfReadQueue( MQHCONN  Hcon     ,  // connection handle
                      char*    recLog   ,  // record  log name, max of 12+1
                      char*    mediaLog);  // media   log name, max of 12+1
 
-MQLONG mqCloseDisonnect( MQHCONN  Hcon    ,  // connection handle   
+MQLONG mqCloseDisconnect( MQHCONN  Hcon    ,  // connection handle   
                          PMQHOBJ  Hqueue );  // queue handle   
 
 int mqOlderLog( const char *log1, const char *log2) ;
 int mqLogName2Id( const char* log );
 int mqCleanLog( const char* logPath, const char* oldestLog );
 int mqCheckLogName( const char* log) ;
-int rcdMqImg( const char* qmgr ) ;
+int rcdMqImg( const char* _qmgr, const char* _instPath );
 
 int mqBackupLog( const char* logPath ,   // original log path
                  const char* bckPath ,   // backup log path
@@ -76,6 +89,8 @@ int mqBackupLog( const char* logPath ,   // original log path
                  const char* currLog);   // current log
 
 int mqCopyLog( const char* orgFile, const char* cpyFile );
+
+MQLONG getMqInstPath( MQHCONN Hconn, char* instPath );
 
 /******************************************************************************/
 /*                                                                            */
@@ -91,6 +106,8 @@ int cleanupLog( const char* qmgrName,
   MQOD     qDscr  = {MQOD_DEFAULT}; // queue descriptor
   MQHOBJ   Hqueue ;                 // queue handle   
 
+//char instPath [MQ_INSTALLATION_PATH_LENGTH];
+  char *instPath ;
   char logPath[124] ; // logpath, theoratical max of 82+1 (incl. log file name)
 //char bckPath[124] ; // backup path, path were logs are to be backuped
   char currLog[16]  ; // current log name, max of 12+1 
@@ -137,6 +154,17 @@ int cleanupLog( const char* qmgrName,
   }
 
   // -------------------------------------------------------
+  // get installation path 
+  // -------------------------------------------------------
+  sysRc = getMqInstPath( Hcon, instPath );
+
+  switch( sysRc )
+  {
+    case MQRC_NONE : break;
+    default  : goto _door;
+  }
+
+  // -------------------------------------------------------
   // set trigger on
   // -------------------------------------------------------
   sysRc = mqSetTrigger( Hcon   ,     // connection handle
@@ -151,7 +179,7 @@ int cleanupLog( const char* qmgrName,
   // -------------------------------------------------------
   // fork process for RCDMQIMG, log RCDMQIMG output to log
   // -------------------------------------------------------
-  rcdMqImg( qmgrName ); // exec RCDMQIMG
+  rcdMqImg( qmgrName, instPath ); // exec RCDMQIMG
 
   // -------------------------------------------------------
   // read all messages from the queue, 
@@ -611,8 +639,8 @@ int mqCheckLogName( const char* log)
 /******************************************************************************/
 /*   M Q   C L O S E   A N D   D I S C O N N E C T                            */
 /******************************************************************************/
-MQLONG mqCloseDisonnect( MQHCONN  Hcon   ,  // connection handle   
-                         PMQHOBJ  Hqueue )  // queue handle   
+MQLONG mqCloseDisconnect( MQHCONN  Hcon   ,  // connection handle   
+                          PMQHOBJ  Hqueue )  // queue handle   
 {
   int sysRc ;
 
@@ -647,7 +675,7 @@ MQLONG mqCloseDisonnect( MQHCONN  Hcon   ,  // connection handle
 /******************************************************************************/
 /*   R E C O R D   M Q   I M A G E                                            */
 /******************************************************************************/
-int rcdMqImg( const char* qmgr )
+int rcdMqImg( const char* _qmgr, const char* _instPath )
 {
   logFuncCall() ;
 
@@ -704,7 +732,7 @@ int rcdMqImg( const char* qmgr )
       // ---------------------------------------------------
       // setup queue manager name
       // ---------------------------------------------------
-      memcpy( qmgrStr, qmgr, MQ_Q_MGR_NAME_LENGTH ) ;  
+      memcpy( qmgrStr, _qmgr, MQ_Q_MGR_NAME_LENGTH ) ;  
       for(i=0;i<MQ_Q_MGR_NAME_LENGTH;i++) 
       {
         if( qmgrStr[i] == ' ' )
@@ -904,4 +932,61 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
                           return 1 ;
     } 
   }
+}
+
+/******************************************************************************/
+/*   G E T   M Q   I N S T A L L A T I O N   P A T H                   */
+/******************************************************************************/
+MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
+{
+  MQLONG mqrc = MQRC_NONE ;  
+
+  MQHBAG cmdBag  = MQHB_UNUSABLE_HBAG;
+  MQHBAG respBag = MQHB_UNUSABLE_HBAG;
+
+  // -------------------------------------------------------
+  // open bags
+  // -------------------------------------------------------
+  mqrc = mqOpenAdminBag( &cmdBag );
+  switch( mqrc )
+  {
+    case MQRC_NONE : break;
+    default: goto _door;
+  }
+
+  mqrc = mqOpenAdminBag( &respBag );
+  switch( mqrc )
+  {
+    case MQRC_NONE : break;
+    default: goto _door;
+  }
+
+  // -------------------------------------------------------
+  // DISPLAY QMSTATUS ALL 
+  //   process command in two steps
+  //   1. setup the list of arguments MQIACF_ALL = ALL
+  //   2. send a command MQCMD_INQUIRE_Q_MGR_STATUS = DISPLAY QMSTATUS
+  // -------------------------------------------------------
+  mqrc = mqSetInqAttr( cmdBag     , MQIACF_ALL );  // 
+  switch( mqrc )
+  {
+    case MQRC_NONE : break;
+    default: goto _door;
+  }
+
+                                      //
+  mqrc = mqExecPcf( Hconn         ,   // send a command to the command queue
+		    MQCMD_INQUIRE_Q_MGR_STATUS,
+                    cmdBag        ,   //
+                    respBag      );   //
+
+  switch( mqrc )
+  {
+    case MQRC_NONE : break;
+    default: goto _door;
+  }
+
+  _door:
+
+  return mqrc ;
 }

@@ -23,7 +23,7 @@ SOURCES = mqLogEv.c
 #AROWN = libmsgcat.a
 LSOWN = mqutil msgcat 
 
-MQLIB = use
+MQINST = /opt/mqm/750
 #XML2  = use
 
 # ------------------------------------------------------------------------------
