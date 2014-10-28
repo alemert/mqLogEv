@@ -940,9 +940,21 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
 MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
 {
   MQLONG mqrc = MQRC_NONE ;  
+  MQLONG compCode ;
 
   MQHBAG cmdBag  = MQHB_UNUSABLE_HBAG;
   MQHBAG respBag = MQHB_UNUSABLE_HBAG;
+  MQHBAG attrBag ;
+
+  MQLONG itemCount ;
+  MQLONG itemType  ;
+  MQLONG selector  ;
+
+  MQINT32 selInt32Val ;
+
+  char* buffer ;
+
+  int i;
 
   // -------------------------------------------------------
   // open bags
@@ -967,25 +979,106 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   //   1. setup the list of arguments MQIACF_ALL = ALL
   //   2. send a command MQCMD_INQUIRE_Q_MGR_STATUS = DISPLAY QMSTATUS
   // -------------------------------------------------------
-  mqrc = mqSetInqAttr( cmdBag     , MQIACF_ALL );  // 
-  switch( mqrc )
-  {
-    case MQRC_NONE : break;
-    default: goto _door;
-  }
-
+  mqrc = mqSetInqAttr( cmdBag, MQCA_INSTALLATION_PATH );    //  set attribute to PCF command
+                                                // display qmstatus ALL
+  switch( mqrc )                                //
+  {                                             //
+    case MQRC_NONE : break;                     //
+    default: goto _door;                        //
+  }                                             //
+                                                //
+  mqrc = mqExecPcf( Hconn                     , // send a command to the command queue
+                    MQCMD_INQUIRE_Q_MGR_STATUS, //
+                    cmdBag                    , //
+                    respBag                  ); //
+                                                //
+  switch( mqrc )                                //
+  {                                             //
+    case MQRC_NONE : break;                     //
+    default: goto _door;                        //
+  }                                             //
+                                                //
+  // ----------  ---------------------------------------------
+  // count the items in response bag
+  // -------------------------------------------------------
+  mqrc = mqBagCountItem( respBag              , // reason code greater than 0
+                         MQSEL_ALL_SELECTORS ); //  is a real reason code
+                                                // reason code less then 0 is
+  if( mqrc > 0 )                                //  not a real reason code it's 
+  {                                             //  the an item counter
+    goto _door;                                 //
+  }                                        //
                                       //
-  mqrc = mqExecPcf( Hconn         ,   // send a command to the command queue
-		    MQCMD_INQUIRE_Q_MGR_STATUS,
-                    cmdBag        ,   //
-                    respBag      );   //
+  if( mqrc < 0 )              //
+  {                              //
+    itemCount = -mqrc;              //
+    mqrc = MQRC_NONE ;              //
+  }                                    //
+                                          //
+  for( i=0; i<itemCount; i++ )      //
+  {                                //
+    mqInquireItemInfo( respBag           ,      //
+                       MQSEL_ANY_SELECTOR,      //
+		       i                 ,      //
+		      &selector          ,      //
+		      &itemType          ,      //
+		      &compCode          ,      //
+		      &mqrc             );      //
+                                          //
+    switch( mqrc )          //
+    {                        //
+      case MQRC_NONE : break;      //
+      default:                  //
+      {                //
+        logMQCall( ERR, "mqInquireItemInfo", mqrc );        //
+	goto _door;      //
+      }                //
+    }                //
+    logMQCall( DBG, "mqCountItems", mqrc );        //
+                        //
+#if(1)
+    printf( "\n%2d selector: %04d %-20.20s type %10.10s", i, 
+                 selector, 
+                 mqSelector2str(selector), 
+	         mqItemType2str(itemType) );
+#endif
+    switch( itemType )      //
+    {                    //
+      case MQITEM_INTEGER :      //
+      {
+	mqInquireInteger( respBag           ,
+                          MQSEL_ANY_SELECTOR,
+                          i                 ,
+                          &selInt32Val      , 
+                          &compCode         , 
+                          &mqrc            );
+        buffer = itemValue2str(selector,(MQLONG)selInt32Val) ;
+	if( buffer )
+        {
+          printf(" value %s", buffer );
+        }
+	else
+        {
+          printf(" value %d", (int)selInt32Val);
+        }
+        break;
+      }
+      case MQHA_BAG_HANDLE :
+      {
+	mqInquireBag( respBag, itemType, 0, &attrBag );
+    bis hier 
+	break ;
+      }
 
-  switch( mqrc )
-  {
-    case MQRC_NONE : break;
-    default: goto _door;
-  }
-
+      default :      //
+      {          //
+	// fehlermeldung fehlt
+	//goto _door;      //
+	continue ;
+      }          //
+    }          //
+  }                          //
+                              //
   _door:
 
   return mqrc ;

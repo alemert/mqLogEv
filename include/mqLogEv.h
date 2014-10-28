@@ -11,6 +11,7 @@
 
 #include "mqbase.h"
 #include "mqreason.h"
+#include <mqtype.h>
 
 #ifdef C_MODULE_MQLOGEV
 const char progname[] = "mqLogEv" ;
