@@ -106,8 +106,8 @@ int cleanupLog( const char* qmgrName,
   MQOD     qDscr  = {MQOD_DEFAULT}; // queue descriptor
   MQHOBJ   Hqueue ;                 // queue handle   
 
-//char instPath [MQ_INSTALLATION_PATH_LENGTH];
-  char *instPath ;
+  char instPath [MQ_INSTALLATION_PATH_LENGTH];
+//char *instPath ;
   char logPath[124] ; // logpath, theoratical max of 82+1 (incl. log file name)
 //char bckPath[124] ; // backup path, path were logs are to be backuped
   char currLog[16]  ; // current log name, max of 12+1 
@@ -156,7 +156,7 @@ int cleanupLog( const char* qmgrName,
   // -------------------------------------------------------
   // get installation path 
   // -------------------------------------------------------
-  sysRc = getMqInstPath( Hcon, instPath );
+    sysRc = getMqInstPath( Hcon, instPath );
 
   switch( sysRc )
   {
@@ -935,7 +935,7 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
 }
 
 /******************************************************************************/
-/*   G E T   M Q   I N S T A L L A T I O N   P A T H                   */
+/*   G E T   M Q   I N S T A L L A T I O N   P A T H                          */
 /******************************************************************************/
 MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
 {
@@ -946,15 +946,30 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   MQHBAG respBag = MQHB_UNUSABLE_HBAG;
   MQHBAG attrBag ;
 
-  MQLONG itemCount ;
-  MQLONG itemType  ;
-  MQLONG selector  ;
+  MQLONG parentItemCount ;
+  MQLONG parentItemType  ;
+  MQLONG parentSelector  ;
+
+  MQLONG childItemCount ;
+  MQLONG childItemType  ;
+  MQLONG childSelector  ;
 
   MQINT32 selInt32Val ;
+  MQCHAR  selStrVal[MQ_INSTALLATION_PATH_LENGTH];
 
-  char* buffer ;
+  MQLONG  selStrLng ;
+  MQLONG  ccsid ;
+
+  char* pBuffer ;
+  char  sBuffer[MQ_INSTALLATION_PATH_LENGTH+1];
 
   int i;
+  int j;
+
+  // -------------------------------------------------------
+  // initialize 
+  // -------------------------------------------------------
+  memset( instPath, ' ', MQ_INSTALLATION_PATH_LENGTH);
 
   // -------------------------------------------------------
   // open bags
@@ -979,7 +994,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   //   1. setup the list of arguments MQIACF_ALL = ALL
   //   2. send a command MQCMD_INQUIRE_Q_MGR_STATUS = DISPLAY QMSTATUS
   // -------------------------------------------------------
-  mqrc = mqSetInqAttr( cmdBag, MQCA_INSTALLATION_PATH );    //  set attribute to PCF command
+  mqrc = mqSetInqAttr( cmdBag, MQIACF_ALL );    //  set attribute to PCF command
                                                 // display qmstatus ALL
   switch( mqrc )                                //
   {                                             //
@@ -998,88 +1013,274 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
     default: goto _door;                        //
   }                                             //
                                                 //
-  // ----------  ---------------------------------------------
+  // ---------------------------------------------------------
   // count the items in response bag
   // -------------------------------------------------------
-  mqrc = mqBagCountItem( respBag              , // reason code greater than 0
-                         MQSEL_ALL_SELECTORS ); //  is a real reason code
-                                                // reason code less then 0 is
-  if( mqrc > 0 )                                //  not a real reason code it's 
-  {                                             //  the an item counter
+  mqrc = mqBagCountItem( respBag              , // get the amount of items
+                         MQSEL_ALL_SELECTORS ); //  for all selectors
+                                                //
+  if( mqrc > 0 )                                // 
+  {                                             //
     goto _door;                                 //
-  }                                        //
-                                      //
-  if( mqrc < 0 )              //
-  {                              //
-    itemCount = -mqrc;              //
-    mqrc = MQRC_NONE ;              //
-  }                                    //
-                                          //
-  for( i=0; i<itemCount; i++ )      //
-  {                                //
-    mqInquireItemInfo( respBag           ,      //
+  }                                             //
+  else                                          // reason code less then 0 is
+  {                                             //  not a real reason code it's 
+    parentItemCount = -mqrc;                    //  the an item counter
+    mqrc = MQRC_NONE ;                          //
+  }                                             //
+                                                //
+  for( i=0; i<parentItemCount; i++ )            // analyze all items
+  {                                             //
+    mqInquireItemInfo( respBag           ,      // find out the item type
                        MQSEL_ANY_SELECTOR,      //
-		       i                 ,      //
-		      &selector          ,      //
-		      &itemType          ,      //
-		      &compCode          ,      //
-		      &mqrc             );      //
-                                          //
-    switch( mqrc )          //
-    {                        //
-      case MQRC_NONE : break;      //
-      default:                  //
-      {                //
-        logMQCall( ERR, "mqInquireItemInfo", mqrc );        //
-	goto _door;      //
-      }                //
-    }                //
-    logMQCall( DBG, "mqCountItems", mqrc );        //
-                        //
-#if(1)
-    printf( "\n%2d selector: %04d %-20.20s type %10.10s", i, 
-                 selector, 
-                 mqSelector2str(selector), 
-	         mqItemType2str(itemType) );
+                       i                 ,      //
+                       &parentSelector   ,      //
+                       &parentItemType   ,      //
+                       &compCode         ,      //
+                       &mqrc            );      //
+                                                //
+    switch( mqrc )                              //
+    {                                           //
+      case MQRC_NONE : break;                   //
+      default:                                  //
+      {                                         //
+        logMQCall( ERR, "mqInquireItemInfo", mqrc );
+        goto _door;                             //
+      }                                         //
+    }                                           //
+    logMQCall( DBG, "mqInquireItemInfo", mqrc );//
+                                                //
+#define _LOGTERM_                               //
+#ifdef  _LOGTERM_                               //
+    printf( "\n%2d selector: %04d %-20.20s type %10.10s",
+               i                               ,//
+               parentSelector                  ,//
+               mqSelector2str(parentSelector)  ,//
+               mqItemType2str(parentItemType) );//
+#endif                                          //
+    switch( parentItemType )                    //
+    {                                           //
+      // -----------------------------------------------------
+      // 32 bit integer -> in this case for system selectors only
+      // -----------------------------------------------------
+      case MQITEM_INTEGER :                     //
+      {                                         //
+        mqInquireInteger( respBag           ,   // 
+                          MQSEL_ANY_SELECTOR,   // only system selectors can
+                          i                 ,   //  be expected
+                          &selInt32Val      ,   //
+                          &compCode         ,   //
+                          &mqrc            );   //
+#ifdef _LOGTERM_                                //
+        pBuffer=(char*)itemValue2str( parentSelector,
+                                    (MQLONG)selInt32Val) ;
+        if( pBuffer )                           //
+        {                                       //
+          printf(" value %s", pBuffer );        //
+        }                                       //
+        else                                    //
+        {                                       //
+          printf(" value %d", (int)selInt32Val);//
+        }                                       //
+#endif                                          //
+        break;                                  //
+      }                                         //
+                                                //
+      // -----------------------------------------------------
+      // a bag in a bag -> real data
+      // -----------------------------------------------------
+      case MQITEM_BAG :                         //
+      {                                         //
+#ifdef  _LOGTERM_                               //
+        printf("\n===========================");//
+        printf("===========================\n");//
+#endif                                          //
+        mqInquireBag( respBag       ,           //
+                      parentSelector,           //
+                      0             ,           //
+                      &attrBag      ,           //
+                      &compCode     ,           //
+                      &mqrc        );           //
+        switch( mqrc )                          //
+        {                                       //
+          case MQRC_NONE :                      //
+          {                                     //
+            break;                              //
+          }                                     //
+          default :                             //
+          {                                     //
+            logMQCall( ERR, "mqInquireItemBag", mqrc ); 
+            goto _door;                         //
+          }                                     //
+        }                                       //
+        logMQCall(DBG,"mqInquireItemBag",mqrc); //
+                                                //
+        // ---------------------------------------------------
+        // count the items in the sub bag
+        // ---------------------------------------------------
+        mqrc=mqBagCountItem(attrBag             ,// get the amount of items
+                            MQSEL_ALL_SELECTORS);//  for all selectors in 
+        if( mqrc > 0 )                           //  child bag
+        {                                        //
+          goto _door;                            //
+        }                                        //
+        else                                     //
+        {                                        //
+          childItemCount = -mqrc;                //
+          mqrc = MQRC_NONE;                      //
+        }                                        //
+                                                 //
+        // ---------------------------------------------------
+	// go through all parent items
+        // ---------------------------------------------------
+        for( j=0; j<childItemCount; j++ )        //
+        {                                        //
+          mqInquireItemInfo( attrBag           , // find out the item type
+                             MQSEL_ANY_SELECTOR, //
+                             j                 , //
+                             &childSelector    , //
+                             &childItemType    , //
+                             &compCode         , //
+                             &mqrc            ); //
+          switch( mqrc )                         //
+          {                                      //
+            case MQRC_NONE: break;               //
+            default :                            //
+            {                                    //
+              logMQCall( ERR, "mqInquireItemInfo", mqrc ); 
+              goto _door;                        //
+            }                                    //
+          }                                      //
+          logMQCall( DBG, "mqInquireItemInfo", mqrc );
+                                                 //
+#ifdef    _LOGTERM_                              //
+          printf("\n%2d selector: %04d %-20.20s type %10.10s",
+                 j                             , //
+                 childSelector                 , //
+                 mqSelector2str(childSelector) , //
+                 mqItemType2str(childItemType)); //
+#endif                                           //
+                                                 //
+          // -------------------------------------------------
+	  // analyze each item / selector
+          // -------------------------------------------------
+          switch( childItemType )                //
+          {                                      //
+#if(0)
+            // -----------------------------------------------
+	    // child item is a 32 bit integer
+            // -----------------------------------------------
+            case MQITEM_INTEGER :                //
+            {                                    //
+              mqInquireInteger(attrBag     ,     // 
+                               MQSEL_ANY_SELECTOR,
+                               j           ,     //  
+                               &selInt32Val,     //
+                               &compCode   ,     //
+                               &mqrc      );     //
+	      switch( mqrc )                     //
+              {                                  //
+                case MQRC_NONE : break;          //
+		default :                        //
+                {                                //
+                  logMQCall( ERR, "mqInquireInteger", mqrc ); 
+		  goto _door;                    //
+                }                                //
+              }                                  //
+              logMQCall( DBG, "mqInquireInteger", mqrc ); 
+                                                 //
+#ifdef        _LOGTERM_                          //
+              pBuffer=(char*)itemValue2str(childSelector,
+                                           (MQLONG)selInt32Val) ;
+              if( pBuffer )                      //
+              {                                  //
+                printf(" value %s", pBuffer );   //
+              }                                  //
+              else                               //
+              {                                  //
+                printf(" value %d", (int)selInt32Val);
+              }                                  //
+#endif                                           //
+              break;                             //
+            }                                    //
+                                                 //
+            // -----------------------------------------------
+	    // child item is a string
+            // -----------------------------------------------
+            case MQITEM_STRING :                 //
+            {                                    //
+              mqInquireString(attrBag   ,        // 
+                              MQSEL_ANY_SELECTOR,//
+                              j         ,        //  
+			      MQ_INSTALLATION_PATH_LENGTH,
+                              selStrVal ,        //
+			      &selStrLng,        //
+			      &ccsid    ,        //
+                              &compCode ,        //
+                              &mqrc    );        //
+	      switch( mqrc )                     //
+	      {                                  //
+                case MQRC_NONE: break ;          //
+                default:                         //
+		{                                //
+                  logMQCall( ERR, "mqInquireString", mqrc ); 
+                  goto _door;                    //
+		}                                //
+	      }                                  //
+              logMQCall( DBG, "mqInquireString", mqrc ); 
+                                                 //
+	      mqTrim( MQ_INSTALLATION_PATH_LENGTH , 
+                      selStrVal,                 //
+                      sBuffer  ,                 //
+                      &compCode,                 //
+                      &mqrc   );                 //
+                                                 //
+              if( childSelector == MQCA_INSTALLATION_PATH )
+	      {                                  //
+		strncpy( instPath,               //
+                         sBuffer ,               //
+                         MQCA_INSTALLATION_PATH ) ;
+	      }                                  //
+#ifdef        _LOGTERM_                          //
+	      printf(" value %s", sBuffer );     //
+#endif                                           //
+	      break;                             //
+	    }                                    //
+                                                 //
+            // -----------------------------------------------
+	    // any other item type for child bag is an error
+            // -----------------------------------------------
+	    default :                            //
+	    {                                    //
+              logMQCall( ERR, "mqInquireItemInfo unexpected Type", mqrc );
+	      goto _door;                        //
+	    }                                    //
 #endif
-    switch( itemType )      //
-    {                    //
-      case MQITEM_INTEGER :      //
-      {
-	mqInquireInteger( respBag           ,
-                          MQSEL_ANY_SELECTOR,
-                          i                 ,
-                          &selInt32Val      , 
-                          &compCode         , 
-                          &mqrc            );
-        buffer = itemValue2str(selector,(MQLONG)selInt32Val) ;
-	if( buffer )
-        {
-          printf(" value %s", buffer );
-        }
-	else
-        {
-          printf(" value %d", (int)selInt32Val);
-        }
-        break;
-      }
-      case MQHA_BAG_HANDLE :
-      {
-	mqInquireBag( respBag, itemType, 0, &attrBag );
-    bis hier 
-	break ;
-      }
+          }                                      //
+        }                                        //
+        break ;                                  //
+      }                                          //
+                                                 //
+      // -----------------------------------------------------
+      // all other parent item types are not expected
+      // -----------------------------------------------------
+      default :                                  //
+      {                                          //
+        logMQCall( ERR, "mqInquireItemInfo unexpected Type", mqrc );
+	goto _door;                              //
+      }                                          //
+    }                                            //
+  }                                              //
+                                                 //
 
-      default :      //
-      {          //
-	// fehlermeldung fehlt
-	//goto _door;      //
-	continue ;
-      }          //
-    }          //
-  }                          //
-                              //
   _door:
+
+  mqCloseBag( &cmdBag );
+  mqCloseBag( &respBag );
+
+#ifdef _LOGTERM_
+  printf("\n");
+#endif 
 
   return mqrc ;
 }
