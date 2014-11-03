@@ -57,7 +57,6 @@
 #define MIN    2
 #define DEL    3
 
-#define LOGGER_QUEUE "SYSTEM.ADMIN.LOGGER.EVENT"
 #define MQ_DEFAULT_INSTALLATION_PATH "/opt/mqm/"
 #define RCDMQIMG  "rcdmqimg"
 
