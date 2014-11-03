@@ -58,6 +58,11 @@
 #define DEL    3
 
 #define LOGGER_QUEUE "SYSTEM.ADMIN.LOGGER.EVENT"
+#define MQ_DEFAULT_INSTALLATION_PATH "/opt/mqm/bin"
+#define RCDMQIMG  "rcdmqimg"
+
+#define RCDMQIMG_CMD_LENGTH  MQ_INSTALLATION_PATH_LENGTH + \
+                             sizeof(RCDMQIMG) + 5
 
 /******************************************************************************/
 /*                               S T R U C T S                                */
@@ -216,6 +221,7 @@ int cleanupLog( const char* qmgrName,
     case MQRC_NO_MSG_AVAILABLE : 
     {    
       logger( LMQM_QUEUE_EMPTY, qName ) ;
+#if(0)
       // ---------------------------------------------------
       // close queue
       // ---------------------------------------------------
@@ -239,6 +245,7 @@ int cleanupLog( const char* qmgrName,
         default        :  logger( LSTD_GEN_SYS, progname );
                            goto _door ; 
       }
+#endif
     
       goto _door ;
     }
@@ -257,6 +264,18 @@ int cleanupLog( const char* qmgrName,
   logger( LMQM_LOG_NAME, "RECORD" , recLog   );
   logger( LMQM_LOG_NAME, "MEDIA"  , mediaLog );
   logger( LMQM_LOG_NAME, "PATH"   , logPath  );
+
+#if(0)
+  if( logPath[0]  == '\0' ||
+      currLog[0]  == '\0' ||
+      recLog[0]   == '\0' ||
+      mediaLog[0] == '\0'  )
+  {
+    sysRc = MQRC_NO_MSG_AVAILABLE ;
+    logger( LMQM_QUEUE_EMPTY, qName );
+    goto _door ;
+  }
+#endif
 
   if( logPath[0]  != '/' ||
       currLog[0]  != 'S' ||
@@ -354,6 +373,7 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
   int      sysRc      = MQRC_NONE;      // general return code
   MQLONG   mqreason   ;                 // MQ return code
   int      cnt        ;                 // message counter
+  int      loop = 0;
                                         //
   logFuncCall() ;                       //
                                         //
@@ -368,7 +388,9 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
   // read all messages from queue and count them
   // ---------------------------------------------------------
   cnt = 0 ;
-  while(1)
+
+  loop = 1;
+  while(loop)
   {
     cnt++ ;
     // -------------------------------------------------------
@@ -399,19 +421,16 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
       case MQRC_NO_MSG_AVAILABLE : 
       { 
         // ---------------------------------------------------
-        // no message at all was found
+        // at least one message found
         // ---------------------------------------------------
-        if( cnt == 1 ) 
-	{
-          goto _door;
-	}
-	sysRc = MQRC_NONE ;
+	sysRc = mqreason ;
+        if( cnt > 1 ) 
+        {
+          sysRc = MQRC_NONE ;
+        }
 
-        // ---------------------------------------------------
-        // at least one message was found
-        // ---------------------------------------------------
-        sysRc = MQRC_NONE ;
-	break;
+        loop = 0;
+	continue ;
       }
   
       // -----------------------------------------------------
@@ -419,7 +438,7 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
       // -----------------------------------------------------
       default: 
       {
-	sysRc = mqreason ;
+        sysRc = mqreason ;
         goto  _door; ;
       }
     }
@@ -688,6 +707,15 @@ int rcdMqImg( const char* _qmgr, const char* _instPath )
 
   int i  ;
   int sysRc = 0;
+  
+  char rcdmqimgCmd[RCDMQIMG_CMD_LENGTH+1] ;
+
+  // -------------------------------------------------------
+  // initialize full path record image command 
+  // -------------------------------------------------------
+  snprintf( rcdmqimgCmd, RCDMQIMG_CMD_LENGTH, "%s/bin/%s", 
+                                               _instPath , 
+                                               RCDMQIMG );
 
   // -------------------------------------------------------
   // fork process for rcdmqimg incl. pipes
@@ -745,9 +773,9 @@ int rcdMqImg( const char* _qmgr, const char* _instPath )
       // ---------------------------------------------------
       // exec
       // ---------------------------------------------------
-      execl( "/opt/mqm/bin/rcdmqimg", "rcdmqimg", "-m", qmgrStr ,
-                                                  "-t", "all"   , 
-                                                  "*" , NULL   );
+      execl( rcdmqimgCmd, RCDMQIMG, "-m", qmgrStr ,
+                                    "-t", "all"   , 
+                                    "*" , NULL   );
 
       // -------------------------------------------------
       // there is no chance to get that far 
@@ -969,7 +997,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   // -------------------------------------------------------
   // initialize 
   // -------------------------------------------------------
-  memset( instPath, ' ', MQ_INSTALLATION_PATH_LENGTH);
+  memset( instPath, 0, MQ_INSTALLATION_PATH_LENGTH);
 
   // -------------------------------------------------------
   // open bags
@@ -1051,6 +1079,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
     logMQCall( DBG, "mqInquireItemInfo", mqrc );//
                                                 //
 #define _LOGTERM_                               //
+#undef  _LOGTERM_
 #ifdef  _LOGTERM_                               //
     printf( "\n%2d selector: %04d %-20.20s type %10.10s",
                i                               ,//
@@ -1166,7 +1195,6 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
           // -------------------------------------------------
           switch( childItemType )                //
           {                                      //
-#if(0)
             // -----------------------------------------------
 	    // child item is a 32 bit integer
             // -----------------------------------------------
@@ -1212,50 +1240,57 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
               mqInquireString(attrBag   ,        // 
                               MQSEL_ANY_SELECTOR,//
                               j         ,        //  
-			      MQ_INSTALLATION_PATH_LENGTH,
+                              MQ_INSTALLATION_PATH_LENGTH,
                               selStrVal ,        //
-			      &selStrLng,        //
-			      &ccsid    ,        //
+                              &selStrLng,        //
+                              &ccsid    ,        //
                               &compCode ,        //
                               &mqrc    );        //
-	      switch( mqrc )                     //
-	      {                                  //
+              switch( mqrc )                     //
+              {                                  //
                 case MQRC_NONE: break ;          //
                 default:                         //
-		{                                //
+                {                                //
                   logMQCall( ERR, "mqInquireString", mqrc ); 
                   goto _door;                    //
-		}                                //
-	      }                                  //
+                }                                //
+              }                                  //
               logMQCall( DBG, "mqInquireString", mqrc ); 
                                                  //
-	      mqTrim( MQ_INSTALLATION_PATH_LENGTH , 
-                      selStrVal,                 //
-                      sBuffer  ,                 //
-                      &compCode,                 //
-                      &mqrc   );                 //
+              mqTrim(MQ_INSTALLATION_PATH_LENGTH,//
+                     selStrVal,                  //
+                     sBuffer  ,                  //
+                     &compCode,                  //
+                     &mqrc   );                  //
+              switch( mqrc )                     //
+              {                                  //
+                case MQRC_NONE : break;          //
+                default :                        //
+                {                                //
+                  logMQCall( ERR, "mqTrim", mqrc ); 
+                  goto _door ;                   //
+                }                                //
+              }                                  //
+              logMQCall( ERR, "mqTrim", mqrc );  //
                                                  //
               if( childSelector == MQCA_INSTALLATION_PATH )
-	      {                                  //
-		strncpy( instPath,               //
-                         sBuffer ,               //
-                         MQCA_INSTALLATION_PATH ) ;
-	      }                                  //
+              {                                  //
+                strcpy( instPath, sBuffer );     //
+              }                                  //
 #ifdef        _LOGTERM_                          //
-	      printf(" value %s", sBuffer );     //
+              printf(" value %s", sBuffer );     //
 #endif                                           //
-	      break;                             //
-	    }                                    //
+	      break;                                 //
+	    }                                        //
                                                  //
             // -----------------------------------------------
 	    // any other item type for child bag is an error
             // -----------------------------------------------
-	    default :                            //
-	    {                                    //
+	    default :                                //
+	    {                                        //
               logMQCall( ERR, "mqInquireItemInfo unexpected Type", mqrc );
-	      goto _door;                        //
-	    }                                    //
-#endif
+	      goto _door;                            //
+	    }                                        //
           }                                      //
         }                                        //
         break ;                                  //
@@ -1267,7 +1302,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
       default :                                  //
       {                                          //
         logMQCall( ERR, "mqInquireItemInfo unexpected Type", mqrc );
-	goto _door;                              //
+	goto _door;                                  //
       }                                          //
     }                                            //
   }                                              //
@@ -1277,6 +1312,11 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
 
   mqCloseBag( &cmdBag );
   mqCloseBag( &respBag );
+
+  if( instPath[0] == '\0' )
+  {
+    strcpy( instPath, MQ_DEFAULT_INSTALLATION_PATH );
+  }
 
 #ifdef _LOGTERM_
   printf("\n");
