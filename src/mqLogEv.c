@@ -58,7 +58,7 @@
 #define DEL    3
 
 #define LOGGER_QUEUE "SYSTEM.ADMIN.LOGGER.EVENT"
-#define MQ_DEFAULT_INSTALLATION_PATH "/opt/mqm/bin"
+#define MQ_DEFAULT_INSTALLATION_PATH "/opt/mqm/"
 #define RCDMQIMG  "rcdmqimg"
 
 #define RCDMQIMG_CMD_LENGTH  MQ_INSTALLATION_PATH_LENGTH + \
