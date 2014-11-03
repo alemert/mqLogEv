@@ -19,6 +19,8 @@ const char progname[] = "mqLogEv" ;
 extern const char progname[] ;
 #endif
 
+#define LOGGER_QUEUE "SYSTEM.ADMIN.LOGGER.EVENT"
+
 /******************************************************************************/
 /*   P R O T O T Y P E S                           */
 /******************************************************************************/
