@@ -80,7 +80,14 @@ int main(int argc, const char* argv[] )
   {                                        
     sysRc = handleCmdLn( argc, argv ) ;   
     if( sysRc != 0 ) goto _door ;        
-    memcpy( qName   ,  getStrAttr( "queue" ), strlen( getStrAttr( "queue" ) ));
+    if( getStrAttr( "queue" ) )
+    {
+      memcpy( qName ,  getStrAttr( "queue" ), strlen( getStrAttr( "queue" ) ));
+    }
+    else
+    {
+      memcpy( qName, LOGGER_QUEUE, sizeof(LOGGER_QUEUE) );
+    }
     memcpy( qmgrName,  getStrAttr( "qmgr"  ), strlen( getStrAttr( "qmgr"  ) ));
 //  qName[   strlen(qName)   ] = ' ' ;
 //  qmgrName[strlen(qmgrName)] = ' ' ;
