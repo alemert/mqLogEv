@@ -32,6 +32,7 @@
 /******************************************************************************/
 /*   D E F I N E S                                                            */
 /******************************************************************************/
+#define LOG_DIRECTORY   "/var/mqm/errors/appl"
 
 /******************************************************************************/
 /*   M A C R O S                                                              */
@@ -54,6 +55,10 @@ int main(int argc, const char* argv[] )
   char qmgrName[MQ_Q_MGR_NAME_LENGTH] ;
   char qName[MQ_Q_NAME_LENGTH] ;
   char iniFileName[255] ;
+
+  char logDir[PATH_MAX];
+  char logName[PATH_MAX+NAME_MAX];
+  int logLevel = LNA ;   // log level not available
 
   int sysRc = 0 ;
 
@@ -89,8 +94,6 @@ int main(int argc, const char* argv[] )
       memcpy( qName, LOGGER_QUEUE, sizeof(LOGGER_QUEUE) );
     }
     memcpy( qmgrName,  getStrAttr( "qmgr"  ), strlen( getStrAttr( "qmgr"  ) ));
-//  qName[   strlen(qName)   ] = ' ' ;
-//  qmgrName[strlen(qmgrName)] = ' ' ;
   }                 
   // -------------------------------------------------------
   // handle trigger monitor call
@@ -104,10 +107,37 @@ int main(int argc, const char* argv[] )
     memcpy( iniFileName, trigData.UserData, sizeof(trigData.UserData) );
   }           
 
-  sysRc = initLogging("/var/mqm/errors/appl/mqLogEv.log",DBG);
+  // -------------------------------------------------------
+  // setup the logging
+  // -------------------------------------------------------
+  if( getStrAttr( "log") )
+  {
+    snprintf( logDir, PATH_MAX, "%s", getStrAttr( "log") ) ;
+  }
+  else
+  {
+    snprintf( logDir, PATH_MAX, "%s", LOG_DIRECTORY );
+  }
+
+  if( getStrAttr( "loglev" ) )
+  {
+    logLevel = logStr2lev( getStrAttr( "loglev" ) );
+    if( logLevel == LNA )
+    {
+      logLevel = LOG;
+    }
+  }
+
+  snprintf( logName, PATH_MAX+NAME_MAX, "%s/%s.log", logDir, progname );
+
+  sysRc = initLogging( (const char*) logName, logLevel );
 
   if( sysRc != 0 ) goto _door ;
 
+
+  // -------------------------------------------------------
+  // cleanup the logs
+  // -------------------------------------------------------
   sysRc = cleanupLog( qmgrName, qName );
 
   if( sysRc != MQRC_NONE ) goto _door ;

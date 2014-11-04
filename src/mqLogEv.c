@@ -104,8 +104,6 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath );
 int cleanupLog( const char* qmgrName,  
                 const char* qName  )
 {
-  MQTMC2 trigData ;
-
   MQHCONN  Hcon   ;                 // connection handle   
   MQOD     qDscr  = {MQOD_DEFAULT}; // queue descriptor
   MQHOBJ   Hqueue ;                 // queue handle   
@@ -594,7 +592,6 @@ int mqCleanLog( const char* logPath, const char* oldestLog )
   DIR *dir ;
   struct dirent *dirEntry ;
   char fileName[256] ;
-  struct stat fMode ;
 
   dir = opendir(logPath) ;
 
@@ -987,7 +984,6 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   MQLONG  selStrLng ;
   MQLONG  ccsid ;
 
-  char* pBuffer ;
   char  sBuffer[MQ_INSTALLATION_PATH_LENGTH+1];
 
   int i;
