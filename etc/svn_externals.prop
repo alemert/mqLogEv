@@ -1,4 +1,4 @@
 mk.inc   http://syspver1/svn/develop/misc/mk.inc/c
 rollout  http://syspver1/svn/develop/misc/rollout/elf
 tools    http://syspver1/svn/develop/misc/tools/bin
-release   http://syspver1/svn/packages/dbag/mqmUtil
+release   http://syspver1/svn/packages/dbag/mqmElfUtil
