@@ -52,13 +52,13 @@
 int main(int argc, const char* argv[] )
 {
   MQTMC2 trigData ;
-  char qmgrName[MQ_Q_MGR_NAME_LENGTH] ;
-  char qName[MQ_Q_NAME_LENGTH] ;
-  char iniFileName[255] ;
+  char qmgrName[MQ_Q_MGR_NAME_LENGTH+1] ;
+  char qName[MQ_Q_NAME_LENGTH+1] ;
 
   char logDir[PATH_MAX];
   char logName[PATH_MAX+NAME_MAX];
-  int logLevel = LNA ;   // log level not available
+//int logLevel = LNA ;   // log level not available
+  int logLevel = DBG ;   // log level not available
 
   int sysRc = 0 ;
 
@@ -68,6 +68,8 @@ int main(int argc, const char* argv[] )
   // -------------------------------------------------------
   memset( qmgrName, ' ', MQ_Q_MGR_NAME_LENGTH );
   memset( qName   , ' ', MQ_Q_NAME_LENGTH     );
+  qmgrName[MQ_Q_MGR_NAME_LENGTH] = '\0' ;
+  qName[MQ_Q_NAME_LENGTH] = '\0' ;    
 
   /************************************************************************/  
   /*  this program can be called by command line or by trigger monitor    */
@@ -101,10 +103,12 @@ int main(int argc, const char* argv[] )
   else            
   {              
     memcpy( &trigData, argv[1], sizeof(MQTMC2) ) ;  
-    dumpTrigData( &trigData ) ;
+//  dumpTrigData( &trigData ) ;
     memcpy( qmgrName   , trigData.QMgrName, MQ_Q_MGR_NAME_LENGTH      );
     memcpy( qName      , trigData.QName   , MQ_Q_NAME_LENGTH          );
-    memcpy( iniFileName, trigData.UserData, sizeof(trigData.UserData) );
+//  memcpy( qmgrName   , "OMEGA", sizeof("OMEGA")      );
+//  memcpy( qName, LOGGER_QUEUE, sizeof(LOGGER_QUEUE) );
+//  memcpy( iniFileName, trigData.UserData, sizeof(trigData.UserData) );
   }           
 
   // -------------------------------------------------------
@@ -122,10 +126,11 @@ int main(int argc, const char* argv[] )
   if( getStrAttr( "loglev" ) )
   {
     logLevel = logStr2lev( getStrAttr( "loglev" ) );
-    if( logLevel == LNA )
-    {
-      logLevel = LOG;
-    }
+  }
+
+  if( logLevel == LNA )
+  {
+     logLevel = LOG;
   }
 
   snprintf( logName, PATH_MAX+NAME_MAX, "%s/%s.log", logDir, progname );
