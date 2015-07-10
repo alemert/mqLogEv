@@ -83,14 +83,11 @@ MQLONG mqCloseDisconnect( MQHCONN  Hcon    ,  // connection handle
 
 int mqOlderLog( const char *log1, const char *log2) ;
 int mqLogName2Id( const char* log );
-int mqCleanLog( const char* logPath, const char* oldestLog );
+int mqCleanLog( const char* logPath   , 
+                const char* bckPath   , 
+                const char* oldestLog);
 int mqCheckLogName( const char* log) ;
 int rcdMqImg( const char* _qmgr, const char* _instPath );
-
-int mqBackupLog( const char* logPath ,   // original log path
-                 const char* bckPath ,   // backup log path
-                 const char* oldLog  ,   // oldest log name
-                 const char* currLog);   // current log
 
 int mqCopyLog( const char* orgFile, const char* cpyFile );
 
@@ -297,7 +294,7 @@ int cleanupLog( const char* qmgrName,
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
-  mqCleanLog( logPath, oldLog ) ;
+  mqCleanLog( logPath, NULL, oldLog ) ;
 
   // -------------------------------------------------------
   // send reset qmgr type(advancedlog) to command server
@@ -556,68 +553,113 @@ int mqLogName2Id( const char* log )
 
 /******************************************************************************/
 /*   C L E A N   T R A N S A C T I O N A L   L O G S                          */
-/*                                                                  */
-/*   attributes:                                                  */
+/*                                                                            */
+/*   attributes:                                                              */
 /*      - logPath:   path to original transactional logs                */
 /*      - bckPath:   path to backup location. If bckPath == NULL no backup    */
 /*                   will be done, files will be just removed            */
 /*      - oldestLog: files older then this are not necessary for active work  */
 /*                   and will be removed on logPath location                  */
-/*                                                                */
-/*   description:                                            */
-/*      1) create a backup directory on bckPath,                     */
+/*                                                                            */
+/*   description:                                                             */
+/*      1) create a backup directory on bckPath,                       */
 /*         directory should include time stamp in the name with             */
-/*         format YYYY.MM.DD-hh.mm.ss        */
+/*         format YYYY.MM.DD-hh.mm-ss                      */
 /*      2) all transactional logs and the active control file "amqhlctl.lfh"  */
 /*         will be copied to the backup location.                             */
 /*      3) transactional logs on the backup location will be compressed       */
 /*      4) all files older then the oldest log will be removed from the       */
-/*         original location                               */
+/*         original location                                           */
 /*      5) if backup location is null, no backup will be done, only files     */
-/*         older then oldest log will be removed                  */
-/*                                    */
+/*         older then oldest log will be removed                      */
+/*                                                                          */
 /******************************************************************************/
 int mqCleanLog( const char* logPath   , 
                 const char* bckPath   , 
                 const char* oldestLog )
 {
   logFuncCall() ;
+  int sysRc = 0;
 
-  DIR *dir ;
-  struct dirent *dirEntry ;
-  char fileName[256] ;
+  DIR *orgDir;                         // source directory pointer
+  struct dirent *orgDirEntry;          // source directory entry
+  char orgFile[PATH_MAX]    ;          // source file name
+                                       //
+//DIR *bckDir;                         // goal directory pointer
+//struct dirent *bckDirEntry;          // goal directory entry
+  char curBckPath[PATH_MAX] ;          // current backup path
+  char cpyFile[PATH_MAX]    ;          //
+                                       //
+  time_t     curTime    ;              // current epoch time
+  struct tm *localTime  ;              // local time structure
+  char       timeStr[32];              // current time as a string 
+                                       //
+  // -----------------------------------------------------
+  // get time for directory name 
+  // -----------------------------------------------------
+  if( bckPath != NULL )                             //
+  {                                                 //
+    curTime = time( NULL );                         // get actual time
+    localTime = localtime( &curTime );              // convert time in structure
+    strftime( timeStr, 32, "%Y%m%d-%H%M-%S", localTime );
+    snprintf( curBckPath, PATH_MAX, "%s/B%s", bckPath, timeStr );
+                                                    //
+    sysRc = mkdir(curBckPath,S_IRUSR|S_IRGRP |      // create current backup 
+                             S_IWUSR|S_IWGRP |      //  directory with 
+                             S_IXUSR|S_IXGRP);      //  rights 770
+    if( sysRc < 0 )                                 //
+    {                                               // make directory failed
+      logger( LSTD_MAKE_DIR_FAILED, curBckPath );   //
+      sysRc = 1;                                    //
+      goto _door;                                   //
+    }                                               //
+  }                                                 //
+                                                    //
+  // -------------------------------------------------------
+  // list all files in source directory
+  // -------------------------------------------------------
+  orgDir = opendir(logPath);                         //
+                                                     //
+  while( NULL != (orgDirEntry = readdir(orgDir) ) )  // 
+  {                                                  //
+    if( strcmp(orgDirEntry->d_name,  "." ) == 0 ||   // skip directories
+        strcmp(orgDirEntry->d_name,  "..") == 0  )   //
+    {                                                //
+      continue;                                      //
+    }                                                //
+                                                     //
+    if( mqCheckLogName( orgDirEntry->d_name ) != 0 ) // file does not match 
+    {                                                // naming standards for 
+      continue;                                      // transactional logs
+    }                                                //
+                                                     //
+    strcpy( orgFile, logPath );                      // set up absolute source 
+    strcat( orgFile, "/" );                          //   file name 
+    strcat( orgFile, orgDirEntry->d_name );          //
+                                                  //
+    if( bckPath != NULL )          //
+    {                                //
+      strcpy( cpyFile, logPath );                    // set up absolute goal 
+      strcat( cpyFile, "/" );                        //   file name 
+      strcat( cpyFile, orgDirEntry->d_name );        //
+    }                                        //
+                                                     //
+    if( mqOlderLog( orgDirEntry->d_name, oldestLog ) > 0 )
+    {                                                // log is not needed any more
+      logger(LMQM_INACTIVE_LOG,orgDirEntry->d_name); //   remove it
+      unlink(orgFile);                               //
+      usleep(1000);                                  //
+    }                                                //
+    else                                             //
+    {                                                //
+      logger(LMQM_ACTIVE_LOG,orgDirEntry->d_name);   //   keep the log
+    }                                                //
+  }                                                  //
 
-  dir = opendir(logPath) ;
+  closedir( orgDir );
 
-  while( NULL != (dirEntry = readdir(dir) ) )
-  {
-    if( strcmp(dirEntry->d_name,  "." ) == 0 ||    // skip directories
-        strcmp(dirEntry->d_name,  "..") == 0  )    //
-    {                                              //
-      continue;                                    //
-    }                                              //
-    // if( S_ISDIR(fMode.st_mode) ) logger(LM_SY_DBG_MARKER) ;
-                                                   //
-    if( mqCheckLogName( dirEntry->d_name ) != 0 )  // file does not match 
-    {                                              // naming standards for 
-      continue;                                    // transactional logs
-    }                                              //
-                                                   //
-    if( mqOlderLog( dirEntry->d_name, oldestLog ) > 0 )
-    {                                              // log is not needed any more
-      logger(LMQM_INACTIVE_LOG,dirEntry->d_name);  //   remove it
-      strcpy(fileName,logPath);                    //
-      strcat(fileName,"/");                        //
-      strcat(fileName,dirEntry->d_name);           // functionality for moving
-      unlink(fileName);                            //  instead of removing 
-      usleep(1000);                                //  transactional logs
-    }                                              //  has to be applied
-    else                                           //
-    {                                              //
-      logger(LMQM_ACTIVE_LOG,dirEntry->d_name);    //   keep the log
-    }                                              //
-  }                                                //
-  return 0 ;
+  _door:
+  return sysRc ;
 }
 
 /******************************************************************************/
@@ -840,6 +882,7 @@ int rcdMqImg( const char* _qmgr, const char* _instPath )
   return sysRc ;
 }
 
+#if(0)
 /******************************************************************************/
 /*   B A C K U P   T R A N S A C T I O N A L   L O G S                     */
 /******************************************************************************/
@@ -893,6 +936,7 @@ int mqBackupLog( const char* logPath,   // original log path
   }
   return 0 ;
 }
+#endif
 
 /******************************************************************************/
 /*   C O P Y   T R A N S A C T I O N A L   L O G                              */
