@@ -556,11 +556,30 @@ int mqLogName2Id( const char* log )
 
 /******************************************************************************/
 /*   C L E A N   T R A N S A C T I O N A L   L O G S                          */
-/*                              */
-/*   description:              */
-/*    remove old logs,             */
+/*                                                                  */
+/*   attributes:                                                  */
+/*      - logPath:   path to original transactional logs                */
+/*      - bckPath:   path to backup location. If bckPath == NULL no backup    */
+/*                   will be done, files will be just removed            */
+/*      - oldestLog: files older then this are not necessary for active work  */
+/*                   and will be removed on logPath location                  */
+/*                                                                */
+/*   description:                                            */
+/*      1) create a backup directory on bckPath,                     */
+/*         directory should include time stamp in the name with             */
+/*         format YYYY.MM.DD-hh.mm.ss        */
+/*      2) all transactional logs and the active control file "amqhlctl.lfh"  */
+/*         will be copied to the backup location.                             */
+/*      3) transactional logs on the backup location will be compressed       */
+/*      4) all files older then the oldest log will be removed from the       */
+/*         original location                               */
+/*      5) if backup location is null, no backup will be done, only files     */
+/*         older then oldest log will be removed                  */
+/*                                    */
 /******************************************************************************/
-int mqCleanLog( const char* logPath, const char* oldestLog )
+int mqCleanLog( const char* logPath   , 
+                const char* bckPath   , 
+                const char* oldestLog )
 {
   logFuncCall() ;
 
@@ -826,8 +845,7 @@ int rcdMqImg( const char* _qmgr, const char* _instPath )
 /******************************************************************************/
 int mqBackupLog( const char* logPath,   // original log path
                  const char* bckPath,   // backup log path
-                 const char* oldLog ,   // oldest log name
-                 const char* currLog)   // current log
+                 const char* oldLog )   // oldest log name
 {
   logFuncCall() ;
 
