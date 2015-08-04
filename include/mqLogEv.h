@@ -22,7 +22,8 @@ extern const char progname[] ;
 #define LOGGER_QUEUE "SYSTEM.ADMIN.LOGGER.EVENT"
 
 /******************************************************************************/
-/*   P R O T O T Y P E S                           */
+/*   P R O T O T Y P E S                                 */
 /******************************************************************************/
-int cleanupLog( const char* qmgrName,  
-                const char* qName  );
+int cleanupLog( const char* qmgrName,  // queue manager name
+                const char* qName   ,  // logger event name
+                const char* bckPath);  // backup path 

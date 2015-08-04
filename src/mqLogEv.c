@@ -98,15 +98,15 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath );
 /*                                   M A I N                                  */
 /*                                                                            */
 /******************************************************************************/
-int cleanupLog( const char* qmgrName,  
-                const char* qName  )
+int cleanupLog( const char* qmgrName,  // queue manager name
+                const char* qName   ,  // logger event name
+                const char* bckPath )  // backup path 
 {
-  MQHCONN  Hcon   ;                 // connection handle   
-  MQOD     qDscr  = {MQOD_DEFAULT}; // queue descriptor
-  MQHOBJ   Hqueue ;                 // queue handle   
+  MQHCONN  Hcon   ;                    // connection handle   
+  MQOD     qDscr  = {MQOD_DEFAULT};    // queue descriptor
+  MQHOBJ   Hqueue ;                    // queue handle   
 
   char instPath [MQ_INSTALLATION_PATH_LENGTH];
-//char *instPath ;
   char logPath[124] ; // logpath, theoratical max of 82+1 (incl. log file name)
 //char bckPath[124] ; // backup path, path were logs are to be backuped
   char currLog[16]  ; // current log name, max of 12+1 
@@ -155,7 +155,7 @@ int cleanupLog( const char* qmgrName,
   // -------------------------------------------------------
   // get installation path 
   // -------------------------------------------------------
-    sysRc = getMqInstPath( Hcon, instPath );
+  sysRc = getMqInstPath( Hcon, instPath );
 
   switch( sysRc )
   {
@@ -174,6 +174,13 @@ int cleanupLog( const char* qmgrName,
     case MQRC_NONE : break ;
     default        : goto _door;
   }
+
+  // -------------------------------------------------------
+  // backup old logs for later analyzes 
+  // -------------------------------------------------------
+  mqCleanLog( logPath,     // original log path
+              bckPath,     // no copy
+              NULL  );     // oldest log (keep 
 
   // -------------------------------------------------------
   // fork process for RCDMQIMG, log RCDMQIMG output to log
@@ -215,32 +222,6 @@ int cleanupLog( const char* qmgrName,
     case MQRC_NO_MSG_AVAILABLE : 
     {    
       logger( LMQM_QUEUE_EMPTY, qName ) ;
-#if(0)
-      // ---------------------------------------------------
-      // close queue
-      // ---------------------------------------------------
-      sysRc = mqCloseObject( Hcon    ,      // connection handle
-                            &Hqueue );     // queue handle
-  
-      switch( sysRc )
-      {
-        case MQRC_NONE : break ;
-        default        : logger( LSTD_GEN_SYS, progname );
-                         goto _door ; 
-      }
-  
-      // ---------------------------------------------------
-      // disconnect from queue manager
-      // ---------------------------------------------------
-      sysRc =  mqDisc( &Hcon );        // connection handle            
-      switch( sysRc )
-      {
-        case MQRC_NONE : break ;
-        default        :  logger( LSTD_GEN_SYS, progname );
-                           goto _door ; 
-      }
-#endif
-    
       goto _door ;
     }
  
@@ -294,7 +275,9 @@ int cleanupLog( const char* qmgrName,
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
-  mqCleanLog( logPath, NULL, oldLog ) ;
+  mqCleanLog( logPath,     // original log path
+              NULL   ,     // no copy
+              oldLog);     // oldest log (keep 
 
   // -------------------------------------------------------
   // send reset qmgr type(advancedlog) to command server
@@ -559,20 +542,24 @@ int mqLogName2Id( const char* log )
 /*      - bckPath:   path to backup location. If bckPath == NULL no backup    */
 /*                   will be done, files will be just removed            */
 /*      - oldestLog: files older then this are not necessary for active work  */
-/*                   and will be removed on logPath location                  */
+/*                   and will be removed on logPath location.       */
+/*                   if oldesLog == NULL no remove will be done, files will   */
+/*                   just be copied                       */
 /*                                                                            */
 /*   description:                                                             */
 /*      1) create a backup directory on bckPath,                       */
 /*         directory should include time stamp in the name with             */
-/*         format YYYY.MM.DD-hh.mm-ss                      */
+/*         format YYYY.MM.DD-hh.mm-ss                        */
 /*      2) all transactional logs and the active control file "amqhlctl.lfh"  */
 /*         will be copied to the backup location.                             */
 /*      3) transactional logs on the backup location will be compressed       */
 /*      4) all files older then the oldest log will be removed from the       */
-/*         original location                                           */
+/*         original location                                             */
 /*      5) if backup location is null, no backup will be done, only files     */
 /*         older then oldest log will be removed                      */
-/*                                                                          */
+/*      6) if oldest log is null just copy will be done, files will not be    */
+/*         removed                            */
+/*                                                                            */
 /******************************************************************************/
 int mqCleanLog( const char* logPath   , 
                 const char* bckPath   , 
@@ -636,14 +623,20 @@ int mqCleanLog( const char* logPath   ,
     strcpy( orgFile, logPath );                      // set up absolute source 
     strcat( orgFile, "/" );                          //   file name 
     strcat( orgFile, orgDirEntry->d_name );          //
-                                                  //
+                                                     //
     if( bckPath != NULL )          //
-    {                                //
+    {                                          //
       strcpy( cpyFile, logPath );                    // set up absolute goal 
       strcat( cpyFile, "/" );                        //   file name 
       strcat( cpyFile, orgDirEntry->d_name );        //
-    }                                        //
+      mqCopyLog( orgFile, cpyFile );      // copy file
+    }                                                //
                                                      //
+    if( oldestLog == NULL )       //
+    {              //
+      continue;        //
+    }                    //
+                              //
     if( mqOlderLog( orgDirEntry->d_name, oldestLog ) > 0 )
     {                                                // log is not needed any more
       logger(LMQM_INACTIVE_LOG,orgDirEntry->d_name); //   remove it
@@ -944,6 +937,7 @@ int mqBackupLog( const char* logPath,   // original log path
 int mqCopyLog( const char* orgFile, const char* cpyFile )
 {
   logFuncCall() ;
+  int sysRc = 0 ;
   
   char copyBuff[COPY_BUFF_LNG] ;
 
@@ -968,7 +962,8 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
                               S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP )) == -1 )
   {
     logger(  LSTD_OPEN_FILE_FAILED, cpyFile ) ;
-    return 1 ;
+    sysRc = 1;
+    goto _door;
   }
 
   // -------------------------------------------------------
@@ -984,15 +979,20 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
 
       case 0            : close(orgFd) ;
                           close(cpyFd) ;
-                          return 0 ;
+                          sysRc = 0 ;
+                          goto _door;
 
       default           : logger( LSTD_ERR_READING_FILE, orgFile);
                           write( cpyFd, copyBuff, rc );
                           close(orgFd) ;
                           close(cpyFd) ;
-                          return 1 ;
+                          sysRc = 1;
+                          goto _door;
     } 
   }
+
+  _door:
+  return sysRc ;
 }
 
 /******************************************************************************/
