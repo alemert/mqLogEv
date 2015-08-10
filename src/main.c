@@ -27,6 +27,7 @@
 // system
 // ---------------------------------------------------------
 #include <string.h>
+#include <regex.h>
 
 // ---------------------------------------------------------
 // MQ
@@ -39,12 +40,14 @@
 // ---------------------------------------------------------
 #include "main.h"
 #include <ctl.h>
+#include <msgcat/lgstd.h>
 #include <mqdump.h>
 
 // ---------------------------------------------------------
 // local
 // ---------------------------------------------------------
 #include <mqLogEv.h>
+#include <cmqbc.h>
 
 /******************************************************************************/
 /*   D E F I N E S                                                            */
@@ -52,6 +55,7 @@
 #define LOG_DIRECTORY   "/var/mqm/errors/appl"
 #define START_MODE_TRIGGER   0
 #define START_MODE_CMDLN     1
+#define TRIGGER_ATTR_CNT     8
 
 /******************************************************************************/
 /*   M A C R O S                                                              */
@@ -60,6 +64,7 @@
 /******************************************************************************/
 /*   P R O T O T Y P E S                                                      */
 /******************************************************************************/
+int userData2argv( char *uData, char** argv );
 
 /******************************************************************************/
 /*                                                                            */
@@ -75,6 +80,9 @@ int main(int argc, const char* argv[] )
   int  startMode = START_MODE_CMDLN ;
   char qmgrName[MQ_Q_MGR_NAME_LENGTH+1];
   char qName[MQ_Q_NAME_LENGTH+1]       ;
+  char userData[MQ_PROCESS_USER_DATA_LENGTH+1];
+  char **triggArgv = NULL;
+  int  triggArgc = 0;
   char *bckPath = NULL;
 
   char logDir[PATH_MAX];
@@ -83,6 +91,8 @@ int main(int argc, const char* argv[] )
   int logLevel = DBG ;   // log level not available
 
   int sysRc = 0 ;
+  int compCode = MQCC_UNKNOWN;
+  int reason   = MQRC_NONE;
 
   // -------------------------------------------------------
   // initialize      
@@ -91,6 +101,7 @@ int main(int argc, const char* argv[] )
   memset( qName   , ' ', MQ_Q_NAME_LENGTH     );
   qmgrName[MQ_Q_MGR_NAME_LENGTH] = '\0' ;
   qName[MQ_Q_NAME_LENGTH] = '\0' ;    
+  userData[MQ_PROCESS_USER_DATA_LENGTH]='\0';
 
   /************************************************************************/  
   /*  this program can be called by command line or by trigger monitor    */
@@ -105,6 +116,10 @@ int main(int argc, const char* argv[] )
   // -------------------------------------------------------
   // handle command line call
   // -------------------------------------------------------
+#if(0)
+  printf( "%d\n",strlen(argv[1]));
+  printf( "%d\n",sizeof(MQTMC2) )   ;
+#endif
   if( strlen(argv[1]) != sizeof(MQTMC2) )   
   {                                        
     sysRc = handleCmdLn( argc, argv ) ;   
@@ -122,13 +137,47 @@ int main(int argc, const char* argv[] )
   // -------------------------------------------------------
   // handle trigger monitor call
   // -------------------------------------------------------
-  else            
-  {              
-    startMode = START_MODE_TRIGGER ;
-    memcpy( qmgrName   , trigData.QMgrName, MQ_Q_MGR_NAME_LENGTH      );
-    memcpy( qName      , trigData.QName   , MQ_Q_NAME_LENGTH          );
-  }           
+  else           
+  {                
+    startMode = START_MODE_TRIGGER;           //  get data from MQTMC2 structure
+                                              //
+    memcpy( &trigData        ,                // get trigger data from 
+             argv[1]         ,                //   real command line
+             sizeof(MQTMC2) );                // 
+                                              //
+    memcpy( qmgrName              ,           // get queue manager name from TMC
+            trigData.QMgrName     ,           // 
+            MQ_Q_MGR_NAME_LENGTH );           //
+                                              //
+    memcpy( qName                 ,           // get queue name from TMC
+            trigData.QName        ,           //
+            MQ_Q_NAME_LENGTH     );           //
+                                              //
+    mqTrim( MQ_PROCESS_USER_DATA_LENGTH,      // get user data from TMC
+            trigData.UserData          ,      //
+            userData                   ,      //
+            &compCode                  ,      //
+            &reason                   );      //
+                                              // check if trimming 
+    if( reason != MQRC_NONE )                 //   user data was OK
+    {                                         //
+      fprintf( stderr, "mqTrim on MQTMC.UserData failed\n");
+      sysRc = reason;                         // exit if trimming failed
+      goto _door;                             //
+    }                                         //
+                                              //
+    if( strlen(userData) > 0 )                // check if there is something in
+    {                                         //   user data
+      triggArgc = userData2argv( userData,    // if so -> convert it to command 
+                                 triggArgv ); //   line format
+                        //
+      sysRc = handleCmdLn( triggArgc,         //
+                           triggArgv );       //
+                        //
 
+    }                                         //  
+  }                                           //
+                                              //
   // -------------------------------------------------------
   // setup the logging
   // -------------------------------------------------------
@@ -162,6 +211,8 @@ int main(int argc, const char* argv[] )
     dumpMqStruct( MQTMC_STRUC_ID,  &trigData, NULL  );
   }
 
+  return 0 ;
+
   // -------------------------------------------------------
   // get backup path; in general backup path might stay null
   // -------------------------------------------------------
@@ -189,3 +240,157 @@ _door :
 /*                                                                            */
 /******************************************************************************/
 
+/******************************************************************************/
+/*   U S E R   D A T A   T O   C O M M A N D   L I N E   A R G U M E N T S    */
+/******************************************************************************/
+int userData2argv( char *uData, char** argv )
+{
+  int sysRc = 0; //function return code
+
+  int i;      // counter
+  int j;      // counter
+  int len;    // length
+
+  int argc = 0 ;
+
+  #define RX_MATCH_CNT     16                 // max nr of matches 3*3+1 < 16
+  #define RX_ERR_BUFF_LNG 100                 // regex error message buffer
+  #define RX_KEY_VAL "(\\w+)=([[:graph:]]+)"  // regular expression key=val
+  #define RX_BLANK   "\\s"                    // regular expression blank
+
+  char rxNat[] = "^("RX_BLANK"*"RX_KEY_VAL")?"    // up to 5 key=value pairs
+                  "("RX_BLANK"+"RX_KEY_VAL")?"    // can be matched
+                  "("RX_BLANK"+"RX_KEY_VAL")?"    // RX_MATCH_CNT = 16 
+                  "("RX_BLANK"+"RX_KEY_VAL")?"    // 5*3+1=16
+                  "("RX_BLANK"+"RX_KEY_VAL")?" ;  
+
+  regex_t    rxComp ;               // regular expression compiled
+  regmatch_t rxMatch[RX_MATCH_CNT]; // regular expression match array
+  char rxErrBuff[RX_ERR_BUFF_LNG];  // regular expression error buffer
+
+  // -------------------------------------------------------
+  // compile regular expression 
+  // -------------------------------------------------------
+  sysRc = regcomp( &rxComp, rxNat, REG_NEWLINE +  // match one line only
+                                   REG_NOTBOL  +  // enable ^
+                                   REG_NOTEOL  );  // enable $
+                               //  REG_EXTENDED );
+  if( sysRc != REG_NOERROR )
+  {
+    regerror( sysRc, &rxComp,rxErrBuff,RX_ERR_BUFF_LNG);
+    logger( LSTD_XML_REGEX_CC_ERR, rxErrBuff );
+    sysRc = (sysRc > 0) ? -sysRc : sysRc ;
+    goto _door;
+  }
+
+  // -------------------------------------------------------
+  // execute regular expression
+  // -------------------------------------------------------
+  sysRc = regexec( &rxComp, uData, RX_MATCH_CNT, rxMatch, 0 );
+  if( sysRc != REG_NOERROR )
+  {
+    regerror( sysRc, &rxComp,rxErrBuff,RX_ERR_BUFF_LNG);
+    logger( LSTD_XML_REGEX_EXEC_ERR, rxErrBuff ) ;
+    sysRc = (sysRc > 0) ? -sysRc : sysRc ;
+    goto _door;
+  }
+
+  // -------------------------------------------------------
+  // check if regular expression worked
+  // -------------------------------------------------------
+  if( (int)strlen(uData) != (int)rxMatch[0].rm_eo )
+  {
+    //printf( "userData %d : match Length %d\n",strlen(uData),rxMatch[0].rm_eo);
+    // error message
+    sysRc = -1 ;
+    goto _door;
+  }
+
+  // -------------------------------------------------------
+  // count key=value pairs
+  // -------------------------------------------------------
+  for( i=0; i<RX_MATCH_CNT; i++ )  // group 0 is whole user data -> ignore
+  {                                // other groups consist of three sub-matches: 
+    if( rxMatch[i].rm_so < 0 ||    // 1st group: key=value -> ignore
+        rxMatch[i].rm_eo < 0  )    // 2nd group: key
+    {                              // 3th group: value
+      argc = i/3*2 ;               // i/3    -> number of key=value pairs
+      break;                       // i/3*2  -> number of arguments
+    }                              //
+  }                                //
+                                   //
+  // -------------------------------------------------------
+  // allocate argument - array
+  // -------------------------------------------------------
+  argv=(char**)malloc(sizeof(char*)*(argc+5));// +2 for queue 
+                                              // +2 for queue manager
+  argv[argc+5] = NULL;                        // +1 to set last argument to null
+
+  // -------------------------------------------------------
+  // allocate and initialize argument fields
+  // -------------------------------------------------------
+  for( i=1, j=0; i<RX_MATCH_CNT; i++ )  // group 0 is whole user data -> ignore
+  {                                     // ignore group 0 by starting at Ix 1
+    len = rxMatch[i].rm_eo -            // end of group
+          rxMatch[i].rm_so ;            // start of group
+
+    if( j == argc ) break;
+                                        //
+    // -----------------------------------------------------
+    // analyze result of regular expression matches
+    // -----------------------------------------------------
+    switch( i%3 )                       // group consists of 3 sub groups
+    {                                   //
+      // ---------------------------------------------------
+      // 1st group: key=value -> ignore
+      // ---------------------------------------------------
+      case 1: continue;         
+
+      // ---------------------------------------------------
+      // 2nd group: key
+      // ---------------------------------------------------
+      case 2:                           // to transform key to arguments add -- 
+      {                                 // (log -> --log)
+	len += 2;                       //
+        argv[j] = (char*)  malloc( sizeof(char)*(len+1));
+	snprintf( argv[j], len+1, "--%s",(uData+rxMatch[i].rm_so));
+        j++;
+        break;                          //
+      }                                 //
+
+      // ---------------------------------------------------
+      // 3th group: value 
+      // ---------------------------------------------------
+      case 0:                           // nothing to be transformed
+      {                                 // 
+        argv[j] = (char*)  malloc( sizeof(char)*(len+1));
+	snprintf( argv[j], len+1, "%s",(uData+rxMatch[i].rm_so));
+        j++;
+        break; 
+      } // case 3
+    }   // switch  
+  }     // for    
+        
+  printf("%d\n",argc);
+  for(i=0;i<argc;i++)
+  {
+    printf("%d %s\n",i,argv[i]);
+  }
+
+  _door:
+
+  if( argv == NULL )
+  {
+    argv=(char**)malloc(sizeof(char*)*(argc+5));
+    argv[0] = (char*) malloc( sizeof(char) * (sizeof("--queue")+1) );
+    argv[2] = (char*) malloc( sizeof(char) * (sizeof("--queue")+1) );
+    argv[1] = (char*) malloc( sizeof(char) * MQ_Q_NAME_LENGTH );
+    argv[3] = (char*) malloc( sizeof(char) * MQ_Q_NAME_LENGTH );
+    argv[4] = NULL ;
+  }
+
+  regfree(&rxComp);
+
+  if( sysRc < 0 ) return sysRc;
+  return argc ;
+}
