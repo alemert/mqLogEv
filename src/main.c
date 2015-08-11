@@ -64,7 +64,7 @@
 /******************************************************************************/
 /*   P R O T O T Y P E S                                                      */
 /******************************************************************************/
-int userData2argv( char *uData, char** argv );
+int userData2argv( char *uData, char*** pArgv );
 
 /******************************************************************************/
 /*                                                                            */
@@ -169,13 +169,25 @@ int main(int argc, const char* argv[] )
     if( strlen(userData) > 0 )                // check if there is something in
     {                                         //   user data
       triggArgc = userData2argv( userData,    // if so -> convert it to command 
-                                 triggArgv ); //   line format
-                        //
-      sysRc = handleCmdLn( triggArgc,         //
-                           triggArgv );       //
-                        //
+                                &triggArgv ); //   line format
+                                              //
+      sprintf(triggArgv[triggArgc],"--queue")    ; triggArgc++;
+      sprintf(triggArgv[triggArgc],"%s",qName)   ; triggArgc++;
+      sprintf(triggArgv[triggArgc],"--qmgr")     ; triggArgc++;
+      sprintf(triggArgv[triggArgc],"%s",qmgrName); triggArgc++;
+                                              //
+      int i;
+      printf("%d\n",triggArgc);
+      for(i=0;i<triggArgc;i++)
+      {
+        printf("%d %s\n",i,triggArgv[i]);
+      }
 
+      sysRc = handleCmdLn( triggArgc,         //
+                           (const char**) triggArgv );       //
+                                              //
     }                                         //  
+
   }                                           //
                                               //
   // -------------------------------------------------------
@@ -243,7 +255,7 @@ _door :
 /******************************************************************************/
 /*   U S E R   D A T A   T O   C O M M A N D   L I N E   A R G U M E N T S    */
 /******************************************************************************/
-int userData2argv( char *uData, char** argv )
+int userData2argv( char *uData, char*** pArgv )
 {
   int sysRc = 0; //function return code
 
@@ -251,6 +263,7 @@ int userData2argv( char *uData, char** argv )
   int j;      // counter
   int len;    // length
 
+  char** argv =NULL;
   int argc = 0 ;
 
   #define RX_MATCH_CNT     16                 // max nr of matches 3*3+1 < 16
@@ -324,7 +337,9 @@ int userData2argv( char *uData, char** argv )
   // -------------------------------------------------------
   argv=(char**)malloc(sizeof(char*)*(argc+5));// +2 for queue 
                                               // +2 for queue manager
-  argv[argc+5] = NULL;                        // +1 to set last argument to null
+  argv[argc+4] = NULL;                        // +1 to set last argument to null
+
+  *pArgv = argv ;
 
   // -------------------------------------------------------
   // allocate and initialize argument fields
@@ -371,23 +386,19 @@ int userData2argv( char *uData, char** argv )
     }   // switch  
   }     // for    
         
-  printf("%d\n",argc);
-  for(i=0;i<argc;i++)
-  {
-    printf("%d %s\n",i,argv[i]);
-  }
-
   _door:
 
   if( argv == NULL )
   {
+    argc=0;
     argv=(char**)malloc(sizeof(char*)*(argc+5));
-    argv[0] = (char*) malloc( sizeof(char) * (sizeof("--queue")+1) );
-    argv[2] = (char*) malloc( sizeof(char) * (sizeof("--queue")+1) );
-    argv[1] = (char*) malloc( sizeof(char) * MQ_Q_NAME_LENGTH );
-    argv[3] = (char*) malloc( sizeof(char) * MQ_Q_NAME_LENGTH );
-    argv[4] = NULL ;
   }
+
+  argv[argc+0] = (char*) malloc( sizeof(char) * (sizeof("--queue ")+1) );
+  argv[argc+2] = (char*) malloc( sizeof(char) * (sizeof("--queue ")+1) );
+  argv[argc+1] = (char*) malloc( sizeof(char) * MQ_Q_NAME_LENGTH );
+  argv[argc+3] = (char*) malloc( sizeof(char) * MQ_Q_NAME_LENGTH );
+  argv[argc+4] = NULL ;
 
   regfree(&rxComp);
 
