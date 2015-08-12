@@ -171,23 +171,18 @@ int main(int argc, const char* argv[] )
       triggArgc = userData2argv( userData,    // if so -> convert it to command 
                                 &triggArgv ); //   line format
                                               //
+      sprintf(triggArgv[0],argv[0]);          //
       sprintf(triggArgv[triggArgc],"--queue")    ; triggArgc++;
       sprintf(triggArgv[triggArgc],"%s",qName)   ; triggArgc++;
       sprintf(triggArgv[triggArgc],"--qmgr")     ; triggArgc++;
       sprintf(triggArgv[triggArgc],"%s",qmgrName); triggArgc++;
                                               //
-      int i;
-      printf("%d\n",triggArgc);
-      for(i=0;i<triggArgc;i++)
-      {
-        printf("%d %s\n",i,triggArgv[i]);
-      }
-
       sysRc = handleCmdLn( triggArgc,         //
-                           (const char**) triggArgv );       //
+                           (const char**) triggArgv );  
+                                              //
+      if( sysRc != 0 ) goto _door;            //
                                               //
     }                                         //  
-
   }                                           //
                                               //
   // -------------------------------------------------------
@@ -222,8 +217,6 @@ int main(int argc, const char* argv[] )
   {
     dumpMqStruct( MQTMC_STRUC_ID,  &trigData, NULL  );
   }
-
-  return 0 ;
 
   // -------------------------------------------------------
   // get backup path; in general backup path might stay null
@@ -335,20 +328,21 @@ int userData2argv( char *uData, char*** pArgv )
   // -------------------------------------------------------
   // allocate argument - array
   // -------------------------------------------------------
-  argv=(char**)malloc(sizeof(char*)*(argc+5));// +2 for queue 
-                                              // +2 for queue manager
-  argv[argc+4] = NULL;                        // +1 to set last argument to null
+  argv=(char**)malloc(sizeof(char*)*(argc+6));// +1 for program name
+                                              // +2 for queue 
+  argv[argc+5] = NULL;                        // +2 for queue manager
+  argc++;                                     // +1 to set last argument to null
 
   *pArgv = argv ;
 
   // -------------------------------------------------------
   // allocate and initialize argument fields
   // -------------------------------------------------------
-  for( i=1, j=0; i<RX_MATCH_CNT; i++ )  // group 0 is whole user data -> ignore
+  for( i=1, j=1; i<RX_MATCH_CNT; i++ )  // group 0 is whole user data -> ignore
   {                                     // ignore group 0 by starting at Ix 1
     len = rxMatch[i].rm_eo -            // end of group
           rxMatch[i].rm_so ;            // start of group
-
+                                        // j=1 since argv[0] == program name
     if( j == argc ) break;
                                         //
     // -----------------------------------------------------
@@ -394,6 +388,7 @@ int userData2argv( char *uData, char*** pArgv )
     argv=(char**)malloc(sizeof(char*)*(argc+5));
   }
 
+  argv[0]      = (char*) malloc(sizeof(char)*NAME_MAX) ;
   argv[argc+0] = (char*) malloc( sizeof(char) * (sizeof("--queue ")+1) );
   argv[argc+2] = (char*) malloc( sizeof(char) * (sizeof("--queue ")+1) );
   argv[argc+1] = (char*) malloc( sizeof(char) * MQ_Q_NAME_LENGTH );

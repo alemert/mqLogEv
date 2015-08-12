@@ -107,7 +107,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   MQHOBJ   Hqueue ;                    // queue handle   
 
   char instPath [MQ_INSTALLATION_PATH_LENGTH];
-  char logPath[124] ; // logpath, theoratical max of 82+1 (incl. log file name)
+  char logPath[MQ_LOG_PATH_LENGTH] ; // logpath, theoratical max of 82+1 (incl. log file name)
 //char bckPath[124] ; // backup path, path were logs are to be backuped
   char currLog[16]  ; // current log name, max of 12+1 
   char recLog[16]   ; // record  log name, max of 12+1
@@ -155,7 +155,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // get installation path 
   // -------------------------------------------------------
-  sysRc = getMqInstPath( Hcon, instPath );
+  sysRc = getMqInstPath( Hcon, instPath, logPath );
 
   switch( sysRc )
   {
@@ -1000,6 +1000,13 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
 /******************************************************************************/
 MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
 {
+#if MQ_INSTALLATION_PATH_LENGTH > MQ_LOG_PATH_LENGTH 
+  #define ITEM_LENGTH MQ_INSTALLATION_PATH_LENGTH
+#else
+  #define ITEM_LENGTH MQ_LOG_PATH_LENGTH
+#endif
+
+
   MQLONG mqrc = MQRC_NONE ;  
   MQLONG compCode ;
 
@@ -1016,7 +1023,8 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   MQLONG childSelector  ;
 
   MQINT32 selInt32Val ;
-  MQCHAR  selStrVal[MQ_INSTALLATION_PATH_LENGTH];
+//MQCHAR  selStrVal[MQ_INSTALLATION_PATH_LENGTH];
+  MQCHAR  selStrVal[ITEM_LENGTH];
 
   MQLONG  selStrLng ;
   MQLONG  ccsid ;
@@ -1272,7 +1280,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
               mqInquireString(attrBag           ,  // 
                               MQSEL_ANY_SELECTOR,  //
                               j                 ,  //  
-                              MQ_INSTALLATION_PATH_LENGTH,
+                              ITEM_LENGTH       ,  //
                               selStrVal         ,  //
                               &selStrLng        ,  //
                               &ccsid            ,  //
@@ -1289,7 +1297,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
               }                                    //
               logMQCall( DBG, "mqInquireString", mqrc ); 
                                                    //
-              mqTrim(MQ_INSTALLATION_PATH_LENGTH,  //
+              mqTrim(ITEM_LENGTH,                  //
                      selStrVal,                    //
                      sBuffer  ,                    //
                      &compCode,                    //
@@ -1305,9 +1313,18 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
               }                                    //
               logMQCall( ERR, "mqTrim", mqrc );    //
                                                    //
-              if( childSelector == MQCA_INSTALLATION_PATH )
-              {                                    //
-                strcpy( instPath, sBuffer );       //
+	      switch( childSelector)
+	      {
+                case MQCA_INSTALLATION_PATH :
+                {                                    //
+                  strcpy( instPath, sBuffer );       //
+		  break;
+                }                                    //
+                case MQCACF_LOG_PATH :
+                {
+		  break;
+                }
+                default: continue ;
               }                                    //
 #ifdef        _LOGTERM_                            //
               printf(" value %s", sBuffer );       //
