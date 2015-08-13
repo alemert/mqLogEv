@@ -8,14 +8,20 @@
 /*      case backup logs will be compressed.                                  */
 /*      after record MQ image,  all archive logs will be removed from the     */
 /*      original directory.                                                   */
-/*                                    */
+/*                                                                            */
 /*    attributes:                                                             */
 /*      -m --qmgr  : queue manager name, default queue manager not possible   */
 /*      -q --queue : event queue name                                         */
-/*      -d --log   : path to error log directory                    */
-/*      -l --loglev: logging level                                       */
-/*      -b --bck   : path to backup directory,                             */
+/*      -d --log   : path to error log directory                              */
+/*      -l --loglev: logging level                                            */
+/*      -b --bck   : path to backup directory,                                */
 /*                   if not set, no backup of tx files only removing them.    */
+/*                                                                            */
+/*                                                                            */
+/*    functions:                                                              */
+/*       - main                                        */
+/*       - userData2argv                              */
+/*       - backupTimeDirName                                */
 /*                                                                            */
 /******************************************************************************/
 
@@ -28,6 +34,7 @@
 // ---------------------------------------------------------
 #include <string.h>
 #include <regex.h>
+#include <time.h>
 
 // ---------------------------------------------------------
 // MQ
@@ -65,6 +72,7 @@
 /*   P R O T O T Y P E S                                                      */
 /******************************************************************************/
 int userData2argv( char *uData, char*** pArgv );
+const char* backupTimeDirName( const char* base );
 
 /******************************************************************************/
 /*                                                                            */
@@ -83,7 +91,7 @@ int main(int argc, const char* argv[] )
   char userData[MQ_PROCESS_USER_DATA_LENGTH+1];
   char **triggArgv = NULL;
   int  triggArgc = 0;
-  char *bckPath = NULL;
+  const char *bckPath = NULL;
 
   char logDir[PATH_MAX];
   char logName[PATH_MAX+NAME_MAX];
@@ -91,8 +99,8 @@ int main(int argc, const char* argv[] )
   int logLevel = DBG ;   // log level not available
 
   int sysRc = 0 ;
-  int compCode = MQCC_UNKNOWN;
-  int reason   = MQRC_NONE;
+  MQLONG compCode = MQCC_UNKNOWN;
+  MQLONG reason   = MQRC_NONE;
 
   // -------------------------------------------------------
   // initialize      
@@ -221,14 +229,14 @@ int main(int argc, const char* argv[] )
   // -------------------------------------------------------
   // get backup path; in general backup path might stay null
   // -------------------------------------------------------
-  bckPath = (char*) getStrAttr( "backup" ) ;
+  bckPath = backupTimeDirName( getStrAttr( "backup" ) ) ;
 
   // -------------------------------------------------------
   // cleanup the logs
   // -------------------------------------------------------
   sysRc = cleanupLog( qmgrName, 
                       qName   ,
-                      bckPath);
+                      bckPath );
 
   if( sysRc != MQRC_NONE ) goto _door ;
 
@@ -400,3 +408,27 @@ int userData2argv( char *uData, char*** pArgv )
   if( sysRc < 0 ) return sysRc;
   return argc ;
 }
+
+/******************************************************************************/
+/*  backup time directory name       */
+/******************************************************************************/
+const char* backupTimeDirName( const char* base )
+{
+  #define STR_TIME_LENGTH 128
+  time_t t;
+  struct tm *ts ;
+  char  strTime[STR_TIME_LENGTH+1];
+  char  *bckDir ;
+
+  bckDir = (char*) malloc( sizeof(char)*(NAME_MAX+1));
+
+  t = time(NULL);
+  ts = localtime( &t );
+ 
+  strftime( strTime, STR_TIME_LENGTH, "%Y-%m-%d_%H:%M:%S", ts );
+
+  snprintf( bckDir, NAME_MAX, "%s/%s/", base, strTime ); 
+
+  return (const char*) bckDir ;
+}
+

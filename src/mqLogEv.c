@@ -41,6 +41,7 @@
 #include <ctl.h>
 #include <msgcat/lgstd.h>
 #include <msgcat/lgmqm.h>
+#include <cmqc.h>
 
 // ---------------------------------------------------------
 // local
@@ -73,7 +74,7 @@
 void usage() ;
 MQLONG pcfReadQueue( MQHCONN  Hcon     ,  // connection handle
                      MQHOBJ   Hqueue   ,  // queue handle
-                     char*    logPath  ,  // logpath, max of 82+1 incl. log file 
+//                   char*    logPath  ,  // logpath, max of 82+1 incl. log file 
                      char*    currLog  ,  // current log name, max of 12+1 
                      char*    recLog   ,  // record  log name, max of 12+1
                      char*    mediaLog);  // media   log name, max of 12+1
@@ -91,7 +92,7 @@ int rcdMqImg( const char* _qmgr, const char* _instPath );
 
 int mqCopyLog( const char* orgFile, const char* cpyFile );
 
-MQLONG getMqInstPath( MQHCONN Hconn, char* instPath );
+MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus );
 
 /******************************************************************************/
 /*                                                                            */
@@ -106,13 +107,13 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   MQOD     qDscr  = {MQOD_DEFAULT};    // queue descriptor
   MQHOBJ   Hqueue ;                    // queue handle   
 
-  char instPath [MQ_INSTALLATION_PATH_LENGTH];
-  char logPath[MQ_LOG_PATH_LENGTH] ; // logpath, theoratical max of 82+1 (incl. log file name)
-//char bckPath[124] ; // backup path, path were logs are to be backuped
-  char currLog[16]  ; // current log name, max of 12+1 
-  char recLog[16]   ; // record  log name, max of 12+1
-  char mediaLog[16] ; // media   log name, max of 12+1
-  char oldLog[16]   ; // oldest  log name, max of 12+1 equals media or record
+  tQmgrObjStatus qmgrObjStatus ;
+//char instPath [MQ_INSTALLATION_PATH_LENGTH+1];
+//char logPath[MQ_LOG_PATH_LENGTH+1]        ; // transactional log path
+  char currLog[MQ_LOG_EXTENT_NAME_LENGTH+1] ; // current log name
+  char recLog[MQ_LOG_EXTENT_NAME_LENGTH+1]  ; // record  log name
+  char mediaLog[MQ_LOG_EXTENT_NAME_LENGTH+1]; // media   log name
+  char oldLog[MQ_LOG_EXTENT_NAME_LENGTH+1]  ; // oldest  log name
 
   MQLONG sysRc = MQRC_NONE ;
   MQLONG locRc = MQRC_NONE ;
@@ -155,9 +156,15 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // get installation path 
   // -------------------------------------------------------
-  sysRc = getMqInstPath( Hcon, instPath, logPath );
+  sysRc = getQmgrStatus( Hcon, &qmgrObjStatus );
 
   switch( sysRc )
+  {
+    case MQRC_NONE : break;
+    default  : goto _door;
+  }
+
+  switch( qmgrObjStatus.reason )
   {
     case MQRC_NONE : break;
     default  : goto _door;
@@ -178,27 +185,26 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // backup old logs for later analyzes 
   // -------------------------------------------------------
-  mqCleanLog( logPath,     // original log path
+  mqCleanLog( qmgrObjStatus.logPath,  // original log path
               bckPath,     // no copy
               NULL  );     // oldest log (keep 
 
   // -------------------------------------------------------
   // fork process for RCDMQIMG, log RCDMQIMG output to log
   // -------------------------------------------------------
-  rcdMqImg( qmgrName, instPath ); // exec RCDMQIMG
+  rcdMqImg( qmgrName, qmgrObjStatus.instPath ); // exec RCDMQIMG
 
   // -------------------------------------------------------
   // read all messages from the queue, 
   // get back only the last one for analyzing
   // -------------------------------------------------------
-  logPath[0]  = '\0' ;
+//logPath[0]  = '\0' ;
   currLog[0]  = '\0' ;
   recLog[0]   = '\0' ;
   mediaLog[0] = '\0' ;
 
   sysRc = pcfReadQueue( Hcon      , 
                         Hqueue    ,
-                        logPath   , 
                         currLog   , 
                         recLog    , 
                         mediaLog );
@@ -238,7 +244,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   logger( LMQM_LOG_NAME, "CURRENT", currLog  );
   logger( LMQM_LOG_NAME, "RECORD" , recLog   );
   logger( LMQM_LOG_NAME, "MEDIA"  , mediaLog );
-  logger( LMQM_LOG_NAME, "PATH"   , logPath  );
+//logger( LMQM_LOG_NAME, "PATH"   , logPath  );
 
 #if(0)
   if( logPath[0]  == '\0' ||
@@ -252,7 +258,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   }
 #endif
 
-  if( logPath[0]  != '/' ||
+  if( qmgrObjStatus.logPath[0]  != '/' ||
       currLog[0]  != 'S' ||
       recLog[0]   != 'S' ||
       mediaLog[0] != 'S'  )
@@ -275,7 +281,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
-  mqCleanLog( logPath,     // original log path
+  mqCleanLog( qmgrObjStatus.logPath, // original log path
               NULL   ,     // no copy
               oldLog);     // oldest log (keep 
 
@@ -333,7 +339,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
 /******************************************************************************/
 MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle   
                      MQHOBJ   Hqueue  , // queue handle   
-                     char*    logPath , // logpath, max of 82+1 incl. log file 
+//                   char*    logPath , // logpath, max of 82+1 incl. log file 
                      char*    currLog , // current log name, max of 12+1 
                      char*    recLog  , // record  log name, max of 12+1
                      char*    mediaLog) // media   log name, max of 12+1
@@ -474,11 +480,13 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
                 break ;
 
         // ---------------------------------------------------
-        // log path
+        // log path -> will be evaluated by DISPLAY QMSTATUS  
         // ---------------------------------------------------
+        #if(0)
         case 0: memcpy(logPath,pPCFstr->String,pPCFstr->StringLength) ;
                 logPath[pPCFstr->StringLength] = '\0' ;
                 break ;
+        #endif
 
         default: break ;
       }
@@ -996,16 +1004,15 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
 }
 
 /******************************************************************************/
-/*   G E T   M Q   I N S T A L L A T I O N   P A T H                          */
+/*   G E T   Q U E U E   M A N A G E R   O B J E C T   S T A T U S            */
 /******************************************************************************/
-MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
+MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
 {
-#if MQ_INSTALLATION_PATH_LENGTH > MQ_LOG_PATH_LENGTH 
-  #define ITEM_LENGTH MQ_INSTALLATION_PATH_LENGTH
-#else
-  #define ITEM_LENGTH MQ_LOG_PATH_LENGTH
-#endif
-
+  #if MQ_INSTALLATION_PATH_LENGTH > MQ_LOG_PATH_LENGTH 
+    #define ITEM_LENGTH MQ_INSTALLATION_PATH_LENGTH
+  #else
+    #define ITEM_LENGTH MQ_LOG_PATH_LENGTH
+  #endif
 
   MQLONG mqrc = MQRC_NONE ;  
   MQLONG compCode ;
@@ -1023,13 +1030,12 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   MQLONG childSelector  ;
 
   MQINT32 selInt32Val ;
-//MQCHAR  selStrVal[MQ_INSTALLATION_PATH_LENGTH];
   MQCHAR  selStrVal[ITEM_LENGTH];
 
   MQLONG  selStrLng ;
   MQLONG  ccsid ;
 
-  char  sBuffer[MQ_INSTALLATION_PATH_LENGTH+1];
+  char  sBuffer[ITEM_LENGTH+1];
 
   int i;
   int j;
@@ -1037,7 +1043,10 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   // -------------------------------------------------------
   // initialize 
   // -------------------------------------------------------
-  memset( instPath, 0, MQ_INSTALLATION_PATH_LENGTH);
+  pQmgrObjStatus->compCode = MQCC_UNKNOWN;
+  pQmgrObjStatus->reason   = MQRC_NONE   ;
+  memset( pQmgrObjStatus->instPath, 0, MQ_INSTALLATION_PATH_LENGTH+1);
+  memset( pQmgrObjStatus->logPath,  0, MQ_LOG_PATH_LENGTH+1         );
 
   // -------------------------------------------------------
   // open bags
@@ -1064,7 +1073,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   // -------------------------------------------------------
   mqrc = mqSetInqAttr( cmdBag, MQIACF_ALL );      // set attribute 
                                                   // to PCF command
-  switch( mqrc )                                  // display qmstatus ALL
+  switch( mqrc )                                  // DISPLAY QMSTATUS ALL
   {                                               //
     case MQRC_NONE : break;                       //
     default: goto _door;                          //
@@ -1097,6 +1106,9 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
     mqrc = MQRC_NONE ;                             //  the an item counter
   }                                                //
                                                    //
+  // ---------------------------------------------------------
+  // go through all items
+  // ---------------------------------------------------------
   for( i=0; i<parentItemCount; i++ )               // analyze all items
   {                                                //
     mqInquireItemInfo( respBag           ,         // find out the item type
@@ -1119,44 +1131,85 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
     logMQCall( DBG, "mqInquireItemInfo", mqrc );   //
                                                    //
 #define _LOGTERM_                                  //
-#undef  _LOGTERM_                                  //
+//#undef  _LOGTERM_                                //
 #ifdef  _LOGTERM_                                  //
-    printf( "\n%2d selector: %04d %-20.20s type %10.10s",
+    char* pBuffer;
+    printf( "%2d selector: %04d %-30.30s type %10.10s",
                i                               ,   //
                parentSelector                  ,   //
                mqSelector2str(parentSelector)  ,   //
                mqItemType2str(parentItemType) );   //
 #endif                                             //
+
+    // -------------------------------------------------------
+    // for each item:
+    //    - get the item type
+    //    - analyze selector depending on the type
+    // -------------------------------------------------------
     switch( parentItemType )                       //
     {                                              //
       // -----------------------------------------------------
-      // 32 bit integer -> in this case for system selectors only
+      // TYPE: 32 bit integer -> in this program only system 
       // -----------------------------------------------------
-      case MQITEM_INTEGER :                        //
-      {                                            //
-        mqInquireInteger( respBag           ,      // 
-                          MQSEL_ANY_SELECTOR,      // only system selectors can
-                          i                 ,      //  be expected
-                          &selInt32Val      ,      //
-                          &compCode         ,      //
-                          &mqrc            );      //
+      case MQITEM_INTEGER :                        // in this program only 
+      {                                            //  system selectors can
+        mqInquireInteger( respBag           ,      //  be expected
+                          MQSEL_ANY_SELECTOR,      // 
+                          i                 ,      // out of system selectors
+                          &selInt32Val      ,      //  only Comp Code and 
+                          &compCode         ,      //  reason code are 
+                          &mqrc            );      //  important, all other 
+        switch( mqrc )                             //  will be ignored
+        {                                          //
+          case MQRC_NONE :                         // analyze InquireInteger
+          {                                        //  reason code
+            break;                                 //
+          }                                        //
+          default :                                //
+          {                                        //
+            logMQCall( ERR, "mqInquireInteger", mqrc ); 
+            goto _door;                            //
+          }                                        //
+        }                                          //
+        logMQCall(DBG,"mqInquireInteger",mqrc);    //
+                                                   //
 #ifdef _LOGTERM_                                   //
         pBuffer=(char*)itemValue2str( parentSelector,
                                     (MQLONG)selInt32Val) ;
         if( pBuffer )                              //
         {                                          //
-          printf(" value %s", pBuffer );           //
+          printf(" value %s\n", pBuffer );           //
         }                                          //
         else                                       //
         {                                          //
-          printf(" value %d", (int)selInt32Val);   //
+          printf(" value %d\n", (int)selInt32Val);   //
         }                                          //
 #endif                                             //
+        // ---------------------------------------------------
+        // TYPE: 32 bit integer; analyze selector
+        // ---------------------------------------------------
+        switch( parentSelector )                   // all 32 bit integer 
+        {                                          //  selectors are system
+          case MQIASY_COMP_CODE:                   //  selectors
+          {                                        //
+            pQmgrObjStatus->compCode = (MQLONG)selInt32Val;
+            break;                                 // only mqExec completion 
+          }                                        //  code and reason code are 
+          case MQIASY_REASON:                      //  interesting for later use
+          {                                        // 
+            pQmgrObjStatus->reason = (MQLONG)selInt32Val;
+            break;                                 //
+          }                                        //
+          default :                                //
+          {                                        // all other selectors can
+            break;                                 //  be ignored
+          }                                        //
+        }                                          //
         break;                                     //
       }                                            //
                                                    //
       // -----------------------------------------------------
-      // a bag in a bag -> real data
+      // TYPE: Bag -> Bag in Bag -> cascaded bag contains real data 
       // -----------------------------------------------------
       case MQITEM_BAG :                            //
       {                                            //
@@ -1164,12 +1217,12 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
         printf("\n===========================");   //
         printf("===========================\n");   //
 #endif                                             //
-        mqInquireBag( respBag       ,              //
-                      parentSelector,              //
+        mqInquireBag( respBag       ,              // usable data are located
+                      parentSelector,              //  in cascaded bag
                       0             ,              //
-                      &attrBag      ,              //
-                      &compCode     ,              //
-                      &mqrc        );              //
+                      &attrBag      ,              // out of this data only:
+                      &compCode     ,              //  - installation path
+                      &mqrc        );              //  - log path
         switch( mqrc )                             //
         {                                          //
           case MQRC_NONE :                         //
@@ -1200,7 +1253,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
         }                                          //
                                                    //
         // ---------------------------------------------------
-	// go through all parent items
+        // go through all parent items
         // ---------------------------------------------------
         for( j=0; j<childItemCount; j++ )          //
         {                                          //
@@ -1223,7 +1276,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
           logMQCall( DBG, "mqInquireItemInfo", mqrc );
                                                    //
 #ifdef    _LOGTERM_                                //
-          printf("\n%2d selector: %04d %-20.20s type %10.10s",
+          printf("   %2d selector: %04d %-30.30s type %10.10s",
                  j                             ,   //
                  childSelector                 ,   //
                  mqSelector2str(childSelector) ,   //
@@ -1231,28 +1284,30 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
 #endif                                             //
                                                    //
           // -------------------------------------------------
-	  // analyze each item / selector
+          // CHILD ITEM
+          //   analyze each child item / selector
           // -------------------------------------------------
           switch( childItemType )                  //
           {                                        //
             // -----------------------------------------------
-	    // child item is a 32 bit integer
+            // CHILD ITEM
+            // TYPE: 32 bit integer
             // -----------------------------------------------
-            case MQITEM_INTEGER :                  //
-            {                                      //
-              mqInquireInteger(attrBag           , // 
-                               MQSEL_ANY_SELECTOR, //
-                               j                 , //  
-                               &selInt32Val      , //
+            case MQITEM_INTEGER :                  // not a single integer 
+            {                                      //  can be used in this 
+              mqInquireInteger(attrBag           , //  program.
+                               MQSEL_ANY_SELECTOR, // so the the selInt32Val
+                               j                 , //  does not have to be 
+                               &selInt32Val      , //  evaluated
                                &compCode         , //
                                &mqrc            ); //
-	      switch( mqrc )                       //
+              switch( mqrc )                       //
               {                                    //
                 case MQRC_NONE : break;            //
-		default :                          //
+                default :                          //
                 {                                  //
                   logMQCall( ERR, "mqInquireInteger", mqrc ); 
-		  goto _door;                      //
+                  goto _door;                      //
                 }                                  //
               }                                    //
               logMQCall( DBG, "mqInquireInteger", mqrc ); 
@@ -1262,22 +1317,23 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
                                            (MQLONG)selInt32Val) ;
               if( pBuffer )                        //
               {                                    //
-                printf(" value %s", pBuffer );     //
+                printf(" value %s\n", pBuffer );     //
               }                                    //
               else                                 //
               {                                    //
-                printf(" value %d", (int)selInt32Val);
+                printf(" value %d\n", (int)selInt32Val);
               }                                    //
 #endif                                             //
               break;                               //
             }                                      //
                                                    //
             // -----------------------------------------------
-	    // child item is a string
+            // CHILD ITEM
+            // TYPE: string
             // -----------------------------------------------
-            case MQITEM_STRING :                   //
-            {                                      //
-              mqInquireString(attrBag           ,  // 
+            case MQITEM_STRING :                   // installation path
+            {                                      //  and log path have
+              mqInquireString(attrBag           ,  //  type STRING
                               MQSEL_ANY_SELECTOR,  //
                               j                 ,  //  
                               ITEM_LENGTH       ,  //
@@ -1297,7 +1353,7 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
               }                                    //
               logMQCall( DBG, "mqInquireString", mqrc ); 
                                                    //
-              mqTrim(ITEM_LENGTH,                  //
+              mqTrim(ITEM_LENGTH,                  // trim string 
                      selStrVal,                    //
                      sBuffer  ,                    //
                      &compCode,                    //
@@ -1313,33 +1369,39 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
               }                                    //
               logMQCall( ERR, "mqTrim", mqrc );    //
                                                    //
-	      switch( childSelector)
-	      {
-                case MQCA_INSTALLATION_PATH :
-                {                                    //
-                  strcpy( instPath, sBuffer );       //
-		  break;
-                }                                    //
-                case MQCACF_LOG_PATH :
-                {
-		  break;
-                }
-                default: continue ;
+              // ---------------------------------------------
+              // CHILD ITEM
+              // TYPE: string
+              // analyze selector
+              // ---------------------------------------------
+              switch( childSelector )              // 
+              {                                    //
+                case MQCA_INSTALLATION_PATH :      //
+                {                                  //
+                  strcpy( pQmgrObjStatus->instPath, sBuffer ); 
+                  break;                           //
+                }                                  //
+                case MQCACF_LOG_PATH :             //
+                {                                  //
+                  strcpy( pQmgrObjStatus->logPath, sBuffer ); 
+                  break;                           //
+                }                                  //
+                default: break ;                   //
               }                                    //
 #ifdef        _LOGTERM_                            //
-              printf(" value %s", sBuffer );       //
+              printf(" value %s\n", sBuffer );       //
 #endif                                             //
-	      break;                               //
-	    }                                      //
+              break;                               //
+            }                                      //
                                                    //
             // -----------------------------------------------
-	    // any other item type for child bag is an error
+            // any other item type for child bag is an error
             // -----------------------------------------------
-	    default :                              //
-	    {                                      //
+            default :                              //
+            {                                      //
               logMQCall( ERR, "mqInquireItemInfo unexpected Type", mqrc );
-	      goto _door;                          //
-	    }                                      //
+              goto _door;                          //
+            }                                      //
           }                                        //
         }                                          //
         break ;                                    //
@@ -1362,9 +1424,9 @@ MQLONG getMqInstPath( MQHCONN Hconn, char* instPath )
   mqCloseBag( &cmdBag );
   mqCloseBag( &respBag );
 
-  if( instPath[0] == '\0' )
+  if( pQmgrObjStatus->instPath[0] == '\0' )
   {
-    strcpy( instPath, MQ_DEFAULT_INSTALLATION_PATH );
+    strcpy( pQmgrObjStatus->instPath, MQ_DEFAULT_INSTALLATION_PATH );
   }
 
 #ifdef _LOGTERM_
