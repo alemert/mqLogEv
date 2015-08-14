@@ -21,7 +21,7 @@ DBGOPT = -g
 SOURCES = mqLogEv.c
 
 #AROWN = libmsgcat.a
-LSOWN = mqutil msgcat 
+LSOWN = mqutil msgcat sogen
 
 MQINST = /opt/mqm/75a
 #XML2  = use

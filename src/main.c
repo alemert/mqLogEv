@@ -19,9 +19,10 @@
 /*                                                                            */
 /*                                                                            */
 /*    functions:                                                              */
-/*       - main                                        */
-/*       - userData2argv                              */
-/*       - backupTimeDirName                                */
+/*       - main                                                    */
+/*       - userData2argv                                    */
+/*       - freeTriggArgv                        */
+/*       - backupTimeDirName                                      */
 /*                                                                            */
 /******************************************************************************/
 
@@ -72,6 +73,7 @@
 /*   P R O T O T Y P E S                                                      */
 /******************************************************************************/
 int userData2argv( char *uData, char*** pArgv );
+void freeTriggArgv( char*** _argv );
 const char* backupTimeDirName( const char* base );
 
 /******************************************************************************/
@@ -188,6 +190,7 @@ int main(int argc, const char* argv[] )
       sysRc = handleCmdLn( triggArgc,         //
                            (const char**) triggArgv );  
                                               //
+      freeTriggArgv( &triggArgv );            //
       if( sysRc != 0 ) goto _door;            //
                                               //
     }                                         //  
@@ -407,6 +410,22 @@ int userData2argv( char *uData, char*** pArgv )
 
   if( sysRc < 0 ) return sysRc;
   return argc ;
+}
+
+/******************************************************************************/
+/*  free trigger arguments                  */
+/******************************************************************************/
+void freeTriggArgv( char*** _argv )
+{
+  char **argv = *_argv;
+
+  while( *argv != NULL )
+  {
+    free(*argv);
+    argv++;
+  }
+
+  free(*_argv);
 }
 
 /******************************************************************************/

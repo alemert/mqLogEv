@@ -4,17 +4,17 @@
 /*                                                                            */
 /*   functions:                                                               */
 /*     - cleanupLog                                                           */
-/*     - pcfReadQueue                                                    */
-/*     - mqOlderLog                                                  */
-/*     - mqLogName2Id                                              */
-/*     - mqCleanLog                                                */
-/*     - mqCheckLogName                                          */
-/*     - mqCloseDisconnect                                      */
-/*     - rcdMqImg                                */
-/*     - mqBackupLog                            */
-/*     - mqCopyLog                              */
-/*     - getMqInstPath                              */
-/*                          */
+/*     - pcfReadQueue                                                         */
+/*     - mqOlderLog                                                           */
+/*     - mqLogName2Id                                                         */
+/*     - mqHandleLog                                                          */
+/*     - mqCheckLogName                                                    */
+/*     - mqCloseDisconnect                                                */
+/*     - rcdMqImg                                          */
+/*     - mqBackupLog                                            */
+/*     - mqCopyLog                                      */
+/*     - getQmgrStatus                                            */
+/*                                                  */
 /******************************************************************************/
 #define C_MODULE_MQLOGEV
 
@@ -34,6 +34,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <errno.h>
+#include <string.h>
+
+// ---------------------------------------------------------
+//  MQ
+// ---------------------------------------------------------
+#include <cmqc.h>
 
 // ---------------------------------------------------------
 // own
@@ -41,7 +48,7 @@
 #include <ctl.h>
 #include <msgcat/lgstd.h>
 #include <msgcat/lgmqm.h>
-#include <cmqc.h>
+#include <genlib.h>
 
 // ---------------------------------------------------------
 // local
@@ -84,7 +91,7 @@ MQLONG mqCloseDisconnect( MQHCONN  Hcon    ,  // connection handle
 
 int mqOlderLog( const char *log1, const char *log2) ;
 int mqLogName2Id( const char* log );
-int mqCleanLog( const char* logPath   , 
+int mqHandleLog( const char* logPath   , 
                 const char* bckPath   , 
                 const char* oldestLog);
 int mqCheckLogName( const char* log) ;
@@ -185,7 +192,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // backup old logs for later analyzes 
   // -------------------------------------------------------
-  mqCleanLog( qmgrObjStatus.logPath,  // original log path
+  mqHandleLog( qmgrObjStatus.logPath,  // original log path
               bckPath,     // no copy
               NULL  );     // oldest log (keep 
 
@@ -281,7 +288,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
-  mqCleanLog( qmgrObjStatus.logPath, // original log path
+  mqHandleLog( qmgrObjStatus.logPath, // original log path
               NULL   ,     // no copy
               oldLog);     // oldest log (keep 
 
@@ -569,7 +576,7 @@ int mqLogName2Id( const char* log )
 /*         removed                            */
 /*                                                                            */
 /******************************************************************************/
-int mqCleanLog( const char* logPath   , 
+int mqHandleLog( const char* logPath   , 
                 const char* bckPath   , 
                 const char* oldestLog )
 {
@@ -579,42 +586,38 @@ int mqCleanLog( const char* logPath   ,
   DIR *orgDir;                         // source directory pointer
   struct dirent *orgDirEntry;          // source directory entry
   char orgFile[PATH_MAX]    ;          // source file name
-                                       //
-//DIR *bckDir;                         // goal directory pointer
-//struct dirent *bckDirEntry;          // goal directory entry
-  char curBckPath[PATH_MAX] ;          // current backup path
   char cpyFile[PATH_MAX]    ;          //
-                                       //
-  time_t     curTime    ;              // current epoch time
-  struct tm *localTime  ;              // local time structure
-  char       timeStr[32];              // current time as a string 
-                                       //
-  // -----------------------------------------------------
-  // get time for directory name 
-  // -----------------------------------------------------
-  if( bckPath != NULL )                             //
-  {                                                 //
-    curTime = time( NULL );                         // get actual time
-    localTime = localtime( &curTime );              // convert time in structure
-    strftime( timeStr, 32, "%Y%m%d-%H%M-%S", localTime );
-    snprintf( curBckPath, PATH_MAX, "%s/B%s", bckPath, timeStr );
+
+  char actBckPath[PATH_MAX];
                                                     //
-    sysRc = mkdir(curBckPath,S_IRUSR|S_IRGRP |      // create current backup 
-                             S_IWUSR|S_IWGRP |      //  directory with 
-                             S_IXUSR|S_IXGRP);      //  rights 770
-    if( sysRc < 0 )                                 //
-    {                                               // make directory failed
-      logger( LSTD_MAKE_DIR_FAILED, curBckPath );   //
-      sysRc = 1;                                    //
-      goto _door;                                   //
-    }                                               //
-  }                                                 //
-                                                    //
+  // -------------------------------------------------------
+  // initialize all directories
+  // -------------------------------------------------------
+  orgDir = opendir(logPath);                         // open source directory 
+  if( orgDir == NULL )                               //   for list all files
+  {                                                  //
+    logger( LSTD_OPEN_DIR_FAILED, logPath );         //
+    logger( LSTD_ERRNO_ERR, errno, strerror(errno) );//
+    sysRc = errno ;                                  //
+    goto _door;                                      //
+  }                                                  //
+                                                     //
+  if( bckPath != NULL )                              //
+  {                                                  //
+    sprintf( actBckPath,"%s/active", bckPath );
+    sysRc = mkdirRecursive( actBckPath, 0775 );         //
+    if(sysRc == -1 )                                 // create goal directory 
+    {                                                //
+      logger( LSTD_MAKE_DIR_FAILED, actBckPath );    //
+      logger( LSTD_ERRNO_ERR, errno, strerror(errno) );
+      sysRc = errno ;                                //
+      goto _door;                                    //
+    }                                                //
+  }                                                  //
+                                                     //
   // -------------------------------------------------------
   // list all files in source directory
   // -------------------------------------------------------
-  orgDir = opendir(logPath);                         //
-                                                     //
   while( NULL != (orgDirEntry = readdir(orgDir) ) )  // 
   {                                                  //
     if( strcmp(orgDirEntry->d_name,  "." ) == 0 ||   // skip directories
@@ -634,10 +637,11 @@ int mqCleanLog( const char* logPath   ,
                                                      //
     if( bckPath != NULL )          //
     {                                          //
-      strcpy( cpyFile, logPath );                    // set up absolute goal 
-      strcat( cpyFile, "/" );                        //   file name 
-      strcat( cpyFile, orgDirEntry->d_name );        //
-      mqCopyLog( orgFile, cpyFile );      // copy file
+      strcpy( cpyFile, actBckPath );                    // set up absolute goal 
+      strcat( cpyFile, "/" );                    // set up absolute goal 
+      strcat( cpyFile, orgDirEntry->d_name );        //  file name
+      sysRc = mqCopyLog( orgFile, cpyFile );      // copy file
+      if( sysRc != 0 ) goto _door;
     }                                                //
                                                      //
     if( oldestLog == NULL )       //
@@ -952,6 +956,8 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
   int orgFd ;
   int cpyFd ;
 
+  int eof = 0;
+
   int rc ;
 
   // -------------------------------------------------------
@@ -960,7 +966,9 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
   if( (orgFd = open( orgFile, O_RDONLY) ) == -1 ) 
   {
     logger( LSTD_OPEN_FILE_FAILED, orgFile ) ;
-    return 1 ;
+    logger( LSTD_ERRNO_ERR, errno, strerror(errno));
+    sysRc = errno ;
+    goto _door;
   }
 
   // -------------------------------------------------------
@@ -970,14 +978,16 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
                               S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP )) == -1 )
   {
     logger(  LSTD_OPEN_FILE_FAILED, cpyFile ) ;
-    sysRc = 1;
+    logger( LSTD_ERRNO_ERR, errno, strerror(errno));
+    sysRc = errno;
     goto _door;
   }
 
   // -------------------------------------------------------
   // copy file in 4k blocks, since page size is 4k
   // -------------------------------------------------------
-  while( 1 )
+  eof = 0 ;
+  while( !eof )
   {
     rc=read(  orgFd, copyBuff, COPY_BUFF_LNG ) ;
     switch( rc )
@@ -988,7 +998,7 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
       case 0            : close(orgFd) ;
                           close(cpyFd) ;
                           sysRc = 0 ;
-                          goto _door;
+                          eof = 1;
 
       default           : logger( LSTD_ERR_READING_FILE, orgFile);
                           write( cpyFd, copyBuff, rc );
@@ -998,6 +1008,19 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
                           goto _door;
     } 
   }
+
+  _door:
+  return sysRc ;
+}
+
+/******************************************************************************/
+/*   C A L L   Z I P   F I L E                                                */
+/******************************************************************************/
+int callZipFile()
+{
+  int sysRc = 0;
+
+  
 
   _door:
   return sysRc ;
@@ -1131,7 +1154,7 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
     logMQCall( DBG, "mqInquireItemInfo", mqrc );   //
                                                    //
 #define _LOGTERM_                                  //
-//#undef  _LOGTERM_                                //
+#undef  _LOGTERM_                                //
 #ifdef  _LOGTERM_                                  //
     char* pBuffer;
     printf( "%2d selector: %04d %-30.30s type %10.10s",
