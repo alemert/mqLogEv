@@ -4,3 +4,4 @@ mqbase.h    http://syspver1/svn/develop/misc/rollout/elf/include/mqbase.h
 mqreason.h  http://syspver1/svn/develop/misc/rollout/elf/include/mqreason.h
 mqdump.h    http://syspver1/svn/develop/misc/rollout/elf/include/mqdump.h
 mqtype.h    http://syspver1/svn/develop/misc/rollout/elf/include/mqtype.h
+genlib.h    http://syspver1/svn/develop/misc/rollout/elf/include/genlib.h
