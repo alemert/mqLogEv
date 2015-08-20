@@ -8,13 +8,13 @@
 /*     - mqOlderLog                                                           */
 /*     - mqLogName2Id                                                         */
 /*     - mqHandleLog                                                          */
-/*     - mqCheckLogName                                                    */
-/*     - mqCloseDisconnect                                                */
-/*     - rcdMqImg                                          */
-/*     - mqBackupLog                                            */
-/*     - mqCopyLog                                      */
-/*     - getQmgrStatus                                            */
-/*                                                  */
+/*     - mqCheckLogName                                                       */
+/*     - mqCloseDisconnect                                                  */
+/*     - rcdMqImg                                              */
+/*     - mqCopyLog                                          */
+/*     - callZipFile                      */
+/*     - getQmgrStatus                                                */
+/*                                                        */
 /******************************************************************************/
 #define C_MODULE_MQLOGEV
 
@@ -91,13 +91,16 @@ MQLONG mqCloseDisconnect( MQHCONN  Hcon    ,  // connection handle
 
 int mqOlderLog( const char *log1, const char *log2) ;
 int mqLogName2Id( const char* log );
-int mqHandleLog( const char* logPath   , 
-                const char* bckPath   , 
-                const char* oldestLog);
+int mqHandleLog( const char* logPath , 
+                const char* bckPath  , 
+                const char* oldestLog,
+                const char* zipBin  );
 int mqCheckLogName( const char* log) ;
 int rcdMqImg( const char* _qmgr, const char* _instPath );
 
 int mqCopyLog( const char* orgFile, const char* cpyFile );
+
+int callZipFile( const char* zipBin, const char* file );
 
 MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus );
 
@@ -108,8 +111,11 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus );
 /******************************************************************************/
 int cleanupLog( const char* qmgrName,  // queue manager name
                 const char* qName   ,  // logger event name
-                const char* bckPath )  // backup path 
+                const char* bckPath ,  // backup path  
+                const char* zipBin  )  // zip binary
 {
+  logFuncCall() ;                       //
+
   MQHCONN  Hcon   ;                    // connection handle   
   MQOD     qDscr  = {MQOD_DEFAULT};    // queue descriptor
   MQHOBJ   Hqueue ;                    // queue handle   
@@ -193,8 +199,9 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // backup old logs for later analyzes 
   // -------------------------------------------------------
   mqHandleLog( qmgrObjStatus.logPath,  // original log path
-              bckPath,     // no copy
-              NULL  );     // oldest log (keep 
+               bckPath              ,  // no copy
+               NULL                 ,  // oldest log (keep 
+               zipBin              );  // zip binary
 
   // -------------------------------------------------------
   // fork process for RCDMQIMG, log RCDMQIMG output to log
@@ -289,8 +296,9 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // remove old logs
   // -------------------------------------------------------
   mqHandleLog( qmgrObjStatus.logPath, // original log path
-              NULL   ,     // no copy
-              oldLog);     // oldest log (keep 
+              NULL                  , // no copy
+              oldLog                , // oldest log (keep 
+              NULL                 ); // zip binary
 
   // -------------------------------------------------------
   // send reset qmgr type(advancedlog) to command server
@@ -338,6 +346,8 @@ int cleanupLog( const char* qmgrName,  // queue manager name
     sysRc = locRc ;
   }
 
+  logFuncExit() ;
+
   return sysRc ;
 }
 
@@ -351,6 +361,8 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
                      char*    recLog  , // record  log name, max of 12+1
                      char*    mediaLog) // media   log name, max of 12+1
 {                                       // 
+  logFuncCall() ;                       //
+
   PMQVOID msg     ;                     // message buffer 
   MQMD    md      = {MQMD_DEFAULT} ;    // message descriptor
   MQGMO   gmo     = {MQGMO_DEFAULT};    // get message options
@@ -360,12 +372,11 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
   PMQCHAR pPCFcmd ;                     // PCF command pointer
   PMQCFST pPCFstr ;                     // PCF string pointer
                                         //
-  int      sysRc      = MQRC_NONE;      // general return code
-  MQLONG   mqreason   ;                 // MQ return code
-  int      cnt        ;                 // message counter
-  int      loop = 0;
+  int      sysRc    = MQRC_NONE;        // general return code
+  MQLONG   mqreason ;                   // MQ return code
+  int      cnt      ;                   // message counter
+  int      loop     = 0;                //
                                         //
-  logFuncCall() ;                       //
                                         //
   // ---------------------------------------------------------
   // prepare get message options 
@@ -502,6 +513,9 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
   }
 
   _door:
+
+  logFuncExit() ;
+
   return sysRc ;
 }
 
@@ -518,6 +532,8 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
 /******************************************************************************/
 int mqOlderLog( const char *log1, const char *log2)
 {
+  logFuncCall() ;                    
+
   int cnt1 ;
   int cnt2 ;
 
@@ -526,6 +542,9 @@ int mqOlderLog( const char *log1, const char *log2)
 
   if( cnt1 > cnt2 ) return -1 ;
   if( cnt1 < cnt2 ) return +1 ;
+
+  logFuncExit() ;
+
   return 0 ;
 }
 
@@ -534,6 +553,8 @@ int mqOlderLog( const char *log1, const char *log2)
 /******************************************************************************/
 int mqLogName2Id( const char* log )
 {
+  logFuncCall() ;                    
+
   char buff[16] ;
   int id        ;
   char *p ;
@@ -545,6 +566,8 @@ int mqLogName2Id( const char* log )
   p  = buff ; 
   while( *++p != '.' ) ; *p='\0' ;
   id = (int) atoi( buff );
+
+  logFuncExit() ;
 
   return id ;
 }
@@ -559,28 +582,31 @@ int mqLogName2Id( const char* log )
 /*      - oldestLog: files older then this are not necessary for active work  */
 /*                   and will be removed on logPath location.       */
 /*                   if oldesLog == NULL no remove will be done, files will   */
-/*                   just be copied                       */
+/*                   just be copied                             */
+/*      - zipBin:    compress program to use i.g. /bin/zip             */
 /*                                                                            */
 /*   description:                                                             */
-/*      1) create a backup directory on bckPath,                       */
+/*      1) create a backup directory on bckPath  ,                            */
 /*         directory should include time stamp in the name with             */
-/*         format YYYY.MM.DD-hh.mm-ss                        */
+/*         format YYYY.MM.DD-hh.mm-ss                                    */
 /*      2) all transactional logs and the active control file "amqhlctl.lfh"  */
 /*         will be copied to the backup location.                             */
 /*      3) transactional logs on the backup location will be compressed       */
 /*      4) all files older then the oldest log will be removed from the       */
-/*         original location                                             */
+/*         original location                                                  */
 /*      5) if backup location is null, no backup will be done, only files     */
-/*         older then oldest log will be removed                      */
+/*         older then oldest log will be removed                        */
 /*      6) if oldest log is null just copy will be done, files will not be    */
-/*         removed                            */
+/*         removed                                              */
 /*                                                                            */
 /******************************************************************************/
 int mqHandleLog( const char* logPath   , 
-                const char* bckPath   , 
-                const char* oldestLog )
+                 const char* bckPath   , 
+                 const char* oldestLog ,
+                 const char* zipBin    )
 {
   logFuncCall() ;
+
   int sysRc = 0;
 
   DIR *orgDir;                         // source directory pointer
@@ -635,20 +661,24 @@ int mqHandleLog( const char* logPath   ,
     strcat( orgFile, "/" );                          //   file name 
     strcat( orgFile, orgDirEntry->d_name );          //
                                                      //
-    if( bckPath != NULL )          //
-    {                                          //
-      strcpy( cpyFile, actBckPath );                    // set up absolute goal 
-      strcat( cpyFile, "/" );                    // set up absolute goal 
+    if( bckPath != NULL )                            //
+    {                                                //
+      strcpy( cpyFile, actBckPath );                 // set up absolute goal 
+      strcat( cpyFile, "/" );                        // set up absolute goal 
       strcat( cpyFile, orgDirEntry->d_name );        //  file name
-      sysRc = mqCopyLog( orgFile, cpyFile );      // copy file
-      if( sysRc != 0 ) goto _door;
+                                          //
+      sysRc = mqCopyLog( orgFile, cpyFile );         // copy file
+      if( sysRc != 0 ) goto _door;                   //
+                                    //
+      sysRc = callZipFile( zipBin, cpyFile );        //
+      if( sysRc != 0 ) goto _door;                   //
     }                                                //
                                                      //
-    if( oldestLog == NULL )       //
-    {              //
-      continue;        //
-    }                    //
-                              //
+    if( oldestLog == NULL )                          //
+    {                                                //
+      continue;                            //
+    }                                                //
+                                                     //
     if( mqOlderLog( orgDirEntry->d_name, oldestLog ) > 0 )
     {                                                // log is not needed any more
       logger(LMQM_INACTIVE_LOG,orgDirEntry->d_name); //   remove it
@@ -664,6 +694,9 @@ int mqHandleLog( const char* logPath   ,
   closedir( orgDir );
 
   _door:
+
+  logFuncExit() ;
+
   return sysRc ;
 }
 
@@ -672,6 +705,8 @@ int mqHandleLog( const char* logPath   ,
 /******************************************************************************/
 int mqCheckLogName( const char* log)
 {
+  logFuncCall() ;
+
   char *p ;
   int  i  ;
 
@@ -689,6 +724,8 @@ int mqCheckLogName( const char* log)
   if( *p++ != 'O' ) return 11 ;
   if( *p++ != 'G' ) return 12 ;
 
+  logFuncExit() ;
+
   return 0 ;
 } 
 
@@ -698,9 +735,9 @@ int mqCheckLogName( const char* log)
 MQLONG mqCloseDisconnect( MQHCONN  Hcon   ,  // connection handle   
                           PMQHOBJ  Hqueue )  // queue handle   
 {
-  int sysRc ;
-
   logFuncCall() ;
+
+  int sysRc ;
 
   // ---------------------------------------------------
   // close queue
@@ -725,6 +762,9 @@ MQLONG mqCloseDisconnect( MQHCONN  Hcon   ,  // connection handle
   }
 
   _door:
+
+  logFuncExit() ;
+
   return sysRc ;
 }
 
@@ -949,6 +989,7 @@ int mqBackupLog( const char* logPath,   // original log path
 int mqCopyLog( const char* orgFile, const char* cpyFile )
 {
   logFuncCall() ;
+
   int sysRc = 0 ;
   
   char copyBuff[COPY_BUFF_LNG] ;
@@ -1010,19 +1051,32 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
   }
 
   _door:
+
+  logFuncExit() ;
+
   return sysRc ;
 }
 
 /******************************************************************************/
 /*   C A L L   Z I P   F I L E                                                */
 /******************************************************************************/
-int callZipFile()
+int callZipFile( const char* zipBin, const char* file )
 {
+  logFuncCall() ;
+
   int sysRc = 0;
 
-  
+  char *argv[2] ;
+        argv[0] = (char*) file;
+	argv[1] = NULL;
 
-  _door:
+  startChild( zipBin, NULL, NULL, argv );
+   
+
+//_door:
+
+  logFuncExit() ;
+
   return sysRc ;
 }
 
@@ -1031,6 +1085,8 @@ int callZipFile()
 /******************************************************************************/
 MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
 {
+  logFuncCall() ;
+
   #if MQ_INSTALLATION_PATH_LENGTH > MQ_LOG_PATH_LENGTH 
     #define ITEM_LENGTH MQ_INSTALLATION_PATH_LENGTH
   #else
@@ -1456,5 +1512,6 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
   printf("\n");
 #endif 
 
+  logFuncExit() ;
   return mqrc ;
 }

@@ -94,6 +94,7 @@ int main(int argc, const char* argv[] )
   char **triggArgv = NULL;
   int  triggArgc = 0;
   const char *bckPath = NULL;
+  const char *zipBin  = NULL;
 
   char logDir[PATH_MAX];
   char logName[PATH_MAX+NAME_MAX];
@@ -233,13 +234,15 @@ int main(int argc, const char* argv[] )
   // get backup path; in general backup path might stay null
   // -------------------------------------------------------
   bckPath = backupTimeDirName( getStrAttr( "backup" ) ) ;
+  zipBin  = getStrAttr( "zip" );
 
   // -------------------------------------------------------
   // cleanup the logs
   // -------------------------------------------------------
   sysRc = cleanupLog( qmgrName, 
                       qName   ,
-                      bckPath );
+                      bckPath ,
+                      zipBin );
 
   if( sysRc != MQRC_NONE ) goto _door ;
 

@@ -59,4 +59,5 @@ typedef struct sQmgrObjStatus tQmgrObjStatus;
 /******************************************************************************/
 int cleanupLog( const char* qmgrName,  // queue manager name
                 const char* qName   ,  // logger event name
-                const char* bckPath);  // backup path 
+                const char* bckPath ,  // backup path 
+                const char* zipBin );  // zip binary
