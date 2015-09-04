@@ -1240,31 +1240,11 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
       case MQRC_NONE: break;                       //
       default       : goto _door;                  //
     }                                              //
-#if(0)
-    mqInquireItemInfo( respBag           ,         //
-                       MQSEL_ANY_SELECTOR,         //
-                       i                 ,         //
-                       &parentSelector   ,         //
-                       &parentItemType   ,         //
-                       &compCode         ,         //
-                       &mqrc            );         //
-                                                   //
-    switch( mqrc )                                 //
-    {                                              //
-      case MQRC_NONE : break;                      //
-      default:                                     //
-      {                                            //
-        logMQCall( ERR, "mqInquireItemInfo", mqrc );
-        goto _door;                                //
-      }                                            //
-    }                                              //
-    logMQCall( DBG, "mqInquireItemInfo", mqrc );   //
-#endif
                                                    //
 #define _LOGTERM_                                  //
 //#undef  _LOGTERM_                                //
 #ifdef  _LOGTERM_                                  //
-    char* pBuffer;
+    char* pBuffer;                                 //
     printf( "%2d selector: %04d %-30.30s type %10.10s",
                i                               ,   //
                parentSelector                  ,   //
