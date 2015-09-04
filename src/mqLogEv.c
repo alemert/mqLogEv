@@ -106,7 +106,7 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus );
 
 /******************************************************************************/
 /*                                                                            */
-/*                                   M A I N                                  */
+/*                          C L E A N U P   L O G S                           */
 /*                                                                            */
 /******************************************************************************/
 int cleanupLog( const char* qmgrName,  // queue manager name
@@ -196,12 +196,21 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   }
 
   // -------------------------------------------------------
-  // backup old logs for later analyzes 
+  // backup old logs for later analyzes (audit)
   // -------------------------------------------------------
-  mqHandleLog( qmgrObjStatus.logPath,  // original log path
-               bckPath              ,  // no copy
-               NULL                 ,  // oldest log (keep 
-               zipBin              );  // zip binary
+  sysRc = mqHandleLog( qmgrObjStatus.logPath,  // original log path
+                       bckPath              ,  // path save the logs
+                       NULL                 ,  // oldest log 
+                       zipBin              );  // zip binary
+  if( sysRc != 0 )
+  {
+    goto _door;
+  }
+
+  if( bckPath )
+  {
+  //backupConfig( qmgrObjStatus.  bckPath );
+  }
 
   // -------------------------------------------------------
   // fork process for RCDMQIMG, log RCDMQIMG output to log
@@ -314,6 +323,12 @@ int cleanupLog( const char* qmgrName,  // queue manager name
     case MQRC_CMD_SERVER_NOT_AVAILABLE : goto _door ;
     default: goto _door;
   }
+
+  // -------------------------------------------------------
+  // backup old logs for recovery 
+  // -------------------------------------------------------
+
+  // code still missing
 
   _door:
 
@@ -630,13 +645,12 @@ int mqHandleLog( const char* logPath   ,
                                                      //
   if( bckPath != NULL )                              //
   {                                                  //
-    sprintf( actBckPath,"%s/active", bckPath );
-    sysRc = mkdirRecursive( actBckPath, 0775 );         //
-    if(sysRc == -1 )                                 // create goal directory 
+    sprintf( actBckPath,"%s/active", bckPath );      //
+    sysRc = mkdirRecursive( actBckPath, 0775 );      //
+    if(sysRc != 0 )                                  // create goal directory 
     {                                                //
       logger( LSTD_MAKE_DIR_FAILED, actBckPath );    //
-      logger( LSTD_ERRNO_ERR, errno, strerror(errno) );
-      sysRc = errno ;                                //
+      logger( LSTD_ERRNO_ERR, sysRc, strerror(sysRc) );
       goto _door;                                    //
     }                                                //
   }                                                  //
@@ -692,6 +706,8 @@ int mqHandleLog( const char* logPath   ,
   }                                                  //
 
   closedir( orgDir );
+
+  
 
   _door:
 
@@ -1033,20 +1049,28 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
     rc=read(  orgFd, copyBuff, COPY_BUFF_LNG ) ;
     switch( rc )
     {
-      case COPY_BUFF_LNG: write( cpyFd, copyBuff, COPY_BUFF_LNG );
-                          break ;
-
-      case 0            : close(orgFd) ;
-                          close(cpyFd) ;
-                          sysRc = 0 ;
-                          eof = 1;
-
-      default           : logger( LSTD_ERR_READING_FILE, orgFile);
-                          write( cpyFd, copyBuff, rc );
-                          close(orgFd) ;
-                          close(cpyFd) ;
-                          sysRc = 1;
-                          goto _door;
+      case COPY_BUFF_LNG: 
+      {	
+	write( cpyFd, copyBuff, COPY_BUFF_LNG );
+        break ;
+      }
+      case 0            : 
+      {	
+        close(orgFd) ;
+        close(cpyFd) ;
+        sysRc = 0 ;
+        eof = 1;
+	break;
+      }
+      default           : 
+      {	
+        logger( LSTD_ERR_READING_FILE, orgFile);
+        write( cpyFd, copyBuff, rc );
+        close(orgFd) ;
+        close(cpyFd) ;
+        sysRc = 1;
+        goto _door;
+      }
     } 
   }
 
@@ -1066,14 +1090,25 @@ int callZipFile( const char* zipBin, const char* file )
 
   int sysRc = 0;
 
-  char *argv[2] ;
-        argv[0] = (char*) file;
-	argv[1] = NULL;
+  char *argv[3] ;
 
-  startChild( zipBin, NULL, NULL, argv );
+        argv[0] = (char*) zipBin ;
+        argv[1] = (char*) file;
+	argv[2] = NULL;
+
+  sysRc = startChild( zipBin, NULL, NULL, argv ) != 0 ;
+  switch( sysRc )
+  {
+    case 0: 
+      logger( LSTD_ZIPPED, file );
+      break;
+    default:
+      logger( LSTD_ZIP_FAILED, file );
+      goto _door;
+  }
    
 
-//_door:
+  _door:
 
   logFuncExit() ;
 
@@ -1210,7 +1245,7 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
     logMQCall( DBG, "mqInquireItemInfo", mqrc );   //
                                                    //
 #define _LOGTERM_                                  //
-#undef  _LOGTERM_                                //
+//#undef  _LOGTERM_                                //
 #ifdef  _LOGTERM_                                  //
     char* pBuffer;
     printf( "%2d selector: %04d %-30.30s type %10.10s",
@@ -1296,6 +1331,13 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
         printf("\n===========================");   //
         printf("===========================\n");   //
 #endif                                             //
+        mqrc = mqBagInq( respBag, 0, &attrBag );   // 
+	switch( mqrc )
+	{
+          case MQRC_NONE: break;
+          default: goto _door;
+        }
+#if(0)
         mqInquireBag( respBag       ,              // usable data are located
                       parentSelector,              //  in cascaded bag
                       0             ,              //
@@ -1315,6 +1357,7 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
           }                                        //
         }                                          //
         logMQCall(DBG,"mqInquireItemBag",mqrc);    //
+#endif
                                                    //
         // ---------------------------------------------------
         // count the items in the sub bag
@@ -1446,7 +1489,7 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
                   goto _door ;                     //
                 }                                  //
               }                                    //
-              logMQCall( ERR, "mqTrim", mqrc );    //
+              logMQCall( DBG, "mqTrim", mqrc );    //
                                                    //
               // ---------------------------------------------
               // CHILD ITEM
