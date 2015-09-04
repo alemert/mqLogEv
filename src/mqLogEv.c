@@ -1200,8 +1200,12 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
                                                   //
   switch( mqrc )                                  //
   {                                               //
-    case MQRC_NONE : break;                       //
-    default: goto _door;                          //
+    case MQRC_NONE : break;                       // 
+    {                                             // mqExecPcf includes 
+    default:                                      // evaluating mqErrBag,
+      pQmgrObjStatus->reason=(MQLONG)selInt32Val; // additional evaluating of 
+      goto _door;                                 // MQIASY_REASON is therefor
+    }                                             // not necessary
   }                                               //
                                                   //
   // ---------------------------------------------------------
@@ -1225,7 +1229,19 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
   // ---------------------------------------------------------
   for( i=0; i<parentItemCount; i++ )               // analyze all items
   {                                                //
-    mqInquireItemInfo( respBag           ,         // find out the item type
+    mqrc = mqItemInfoInq( respBag           ,      // find out the item type
+                          MQSEL_ANY_SELECTOR,      //
+                          i                 ,      //
+                          &parentSelector   ,      //
+                          &parentItemType  );      //
+                                                   //
+    switch( mqrc )                                 //
+    {                                              //
+      case MQRC_NONE: break;                       //
+      default       : goto _door;                  //
+    }                                              //
+#if(0)
+    mqInquireItemInfo( respBag           ,         //
                        MQSEL_ANY_SELECTOR,         //
                        i                 ,         //
                        &parentSelector   ,         //
@@ -1243,6 +1259,7 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
       }                                            //
     }                                              //
     logMQCall( DBG, "mqInquireItemInfo", mqrc );   //
+#endif
                                                    //
 #define _LOGTERM_                                  //
 //#undef  _LOGTERM_                                //
