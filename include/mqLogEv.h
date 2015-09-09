@@ -41,18 +41,20 @@ extern const char progname[] ;
 /******************************************************************************/
 /*   S T R U C T                                                              */
 /******************************************************************************/
-struct sQmgrObjStatus
+struct sQmgrObj
 {
   MQLONG compCode ;
   MQLONG reason   ;
   MQCHAR logPath [MQ_LOG_PATH_LENGTH+1]         ; // transactional log path
   MQCHAR instPath[MQ_INSTALLATION_PATH_LENGTH+1]; // installation path
+  MQCHAR sslPath[MQ_SSL_KEY_REPOSITORY_LENGTH+1]; // path to SSL repository
+  MQCHAR dataPath[MQ_SSL_KEY_REPOSITORY_LENGTH+1]; // path to QM.INI 
 };
 
 /******************************************************************************/
 /*   T Y P E S                                                                */
 /******************************************************************************/
-typedef struct sQmgrObjStatus tQmgrObjStatus;
+typedef struct sQmgrObj tQmgrObj;
 
 /******************************************************************************/
 /*   P R O T O T Y P E S                                                      */

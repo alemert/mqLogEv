@@ -9,14 +9,26 @@
 /*     - mqLogName2Id                                                         */
 /*     - mqHandleLog                                                          */
 /*     - mqCheckLogName                                                       */
-/*     - mqCloseDisconnect                                                  */
-/*     - rcdMqImg                                              */
-/*     - mqCopyLog                                          */
-/*     - callZipFile                      */
-/*     - getQmgrStatus                                                */
-/*                                                        */
+/*     - mqCloseDisconnect                                                    */
+/*     - rcdMqImg                                                             */
+/*     - mqCopyLog                                                            */
+/*     - copyFile                                                             */
+/*     - copyQmIni                                                */
+/*     - copySslRepos                                    */
+/*     - callZipFile                                                          */
+/*     - createQmgrObject                                                     */
+/*     - deleteQmgrObject                                                     */
+/*     - getQmgrStatus                                                        */
+/*     - getQmgrObject                                                        */
+/*                                                                            */
 /******************************************************************************/
 #define C_MODULE_MQLOGEV
+
+/******************************************************************************/
+/*                             D E B U G G I N G                              */
+/******************************************************************************/
+#define _LOGTERM_                              
+//#undef  _LOGTERM_                           
 
 /******************************************************************************/
 /*                              I N C L U D E S                               */
@@ -36,6 +48,7 @@
 #include <time.h>
 #include <errno.h>
 #include <string.h>
+#include <libgen.h>
 
 // ---------------------------------------------------------
 //  MQ
@@ -71,6 +84,18 @@
 #define RCDMQIMG_CMD_LENGTH  MQ_INSTALLATION_PATH_LENGTH + \
                              sizeof(RCDMQIMG) + 5
 
+#define ITEM_LENGTH MQ_LOG_PATH_LENGTH 
+
+#if ITEM_LENGTH < MQ_INSTALLATION_PATH_LENGTH 
+  #undef  ITEM_LENGTH 
+  #define ITEM_LENGTH  MQ_INSTALLATION_PATH_LENGTH 
+#endif
+
+#if ITEM_LENGTH < MQ_SSL_KEY_REPOSITORY_LENGTH
+  #undef  ITEM_LENGTH 
+  #define ITEM_LENGTH  MQ_SSL_KEY_REPOSITORY_LENGTH
+#endif
+
 /******************************************************************************/
 /*                               S T R U C T S                                */
 /******************************************************************************/
@@ -99,10 +124,15 @@ int mqCheckLogName( const char* log) ;
 int rcdMqImg( const char* _qmgr, const char* _instPath );
 
 int mqCopyLog( const char* orgFile, const char* cpyFile );
-
+int copyFile( const char *src, const char *goal );
+int copyQmIni( const char *origPath, const char *goalPath );
+int copySslRepos( const char *mqSslPath, const char *bckPath );
 int callZipFile( const char* zipBin, const char* file );
 
-MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus );
+tQmgrObj*  createQmgrObject();
+void  deleteQmgrObject( tQmgrObj *qmgrObj );
+MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObj* pQmgrObjStatus );
+MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObj* pQmgrObjStatus );
 
 /******************************************************************************/
 /*                                                                            */
@@ -120,7 +150,8 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   MQOD     qDscr  = {MQOD_DEFAULT};    // queue descriptor
   MQHOBJ   Hqueue ;                    // queue handle   
 
-  tQmgrObjStatus qmgrObjStatus ;
+  tQmgrObj *pQmgrObj = NULL ;
+  
 //char instPath [MQ_INSTALLATION_PATH_LENGTH+1];
 //char logPath[MQ_LOG_PATH_LENGTH+1]        ; // transactional log path
   char currLog[MQ_LOG_EXTENT_NAME_LENGTH+1] ; // current log name
@@ -167,9 +198,19 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   }
 
   // -------------------------------------------------------
-  // get installation path 
+  // get installation path,
+  //     log path
+  //     SSL key repository path
+  //     QM.INI path will be produced from SSL path
   // -------------------------------------------------------
-  sysRc = getQmgrStatus( Hcon, &qmgrObjStatus );
+  pQmgrObj = createQmgrObject();
+  if( pQmgrObj == NULL )
+  {
+    sysRc = -1;
+    goto _door;
+  }
+
+  sysRc = getQmgrStatus( Hcon, pQmgrObj );
 
   switch( sysRc )
   {
@@ -177,7 +218,21 @@ int cleanupLog( const char* qmgrName,  // queue manager name
     default  : goto _door;
   }
 
-  switch( qmgrObjStatus.reason )
+  switch( pQmgrObj->reason )
+  {
+    case MQRC_NONE : break;
+    default  : goto _door;
+  }
+
+  sysRc = getQmgrObject( Hcon, pQmgrObj );
+
+  switch( sysRc )
+  {
+    case MQRC_NONE : break;
+    default  : goto _door;
+  }
+
+  switch( pQmgrObj->reason )
   {
     case MQRC_NONE : break;
     default  : goto _door;
@@ -198,24 +253,39 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // backup old logs for later analyzes (audit)
   // -------------------------------------------------------
-  sysRc = mqHandleLog( qmgrObjStatus.logPath,  // original log path
-                       bckPath              ,  // path save the logs
-                       NULL                 ,  // oldest log 
-                       zipBin              );  // zip binary
+  sysRc = mqHandleLog( pQmgrObj->logPath,  // original log path
+                       bckPath          ,  // path save the logs
+                       NULL             ,  // oldest log 
+                       zipBin          );  // zip binary
   if( sysRc != 0 )
   {
     goto _door;
   }
 
+  // -------------------------------------------------------
+  // backup configuration and security i.g.
+  //    - QM.INI
+  //    - SSL key.*
+  // -------------------------------------------------------
   if( bckPath )
   {
-  //backupConfig( qmgrObjStatus.  bckPath );
+#if(0)
+    printf("\n=============================================================\n");
+    printf( "inst path:\t%s\n", pQmgrObj->instPath );
+    printf( "ssl file:\t%s\n", pQmgrObj->sslPath );
+    printf( "ssl dir :\t%s\n", basename(  pQmgrObj->sslPath ) );
+    printf( "ssl dir :\t%s\n", basename( basename(  pQmgrObj->sslPath ) ) );
+    printf("=============================================================\n\n");
+#endif
+
+    copyQmIni( dirname( dirname(  pQmgrObj->sslPath ) ), bckPath );
+    copySslRepos( dirname( dirname(  pQmgrObj->sslPath ) ), bckPath );
   }
 
   // -------------------------------------------------------
   // fork process for RCDMQIMG, log RCDMQIMG output to log
   // -------------------------------------------------------
-  rcdMqImg( qmgrName, qmgrObjStatus.instPath ); // exec RCDMQIMG
+  rcdMqImg( qmgrName, pQmgrObj->instPath ); // exec RCDMQIMG
 
   // -------------------------------------------------------
   // read all messages from the queue, 
@@ -281,7 +351,7 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   }
 #endif
 
-  if( qmgrObjStatus.logPath[0]  != '/' ||
+  if( pQmgrObj->logPath[0]  != '/' ||
       currLog[0]  != 'S' ||
       recLog[0]   != 'S' ||
       mediaLog[0] != 'S'  )
@@ -304,10 +374,10 @@ int cleanupLog( const char* qmgrName,  // queue manager name
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
-  mqHandleLog( qmgrObjStatus.logPath, // original log path
-              NULL                  , // no copy
-              oldLog                , // oldest log (keep 
-              NULL                 ); // zip binary
+  mqHandleLog( pQmgrObj->logPath, // original log path
+              NULL              , // no copy
+              oldLog            , // oldest log (keep 
+              NULL             ); // zip binary
 
   // -------------------------------------------------------
   // send reset qmgr type(advancedlog) to command server
@@ -361,6 +431,8 @@ int cleanupLog( const char* qmgrName,  // queue manager name
     sysRc = locRc ;
   }
 
+  deleteQmgrObject( pQmgrObj );
+
   logFuncExit() ;
 
   return sysRc ;
@@ -413,6 +485,12 @@ MQLONG pcfReadQueue( MQHCONN  Hcon    , // connection handle
     // read a single message from the queue
     // -------------------------------------------------------
     msg = (PMQVOID) malloc(msgSize*sizeof(char));
+    if( msg == NULL )
+    {
+      logger( LSTD_MEM_ALLOC_ERROR ) ;      
+      sysRc = errno ; 
+      goto _door;
+    }
     mqreason = mqGet( Hcon    ,     // connection handle
                       Hqueue  ,     // object(queue) handle
                       msg     ,     // message buffer
@@ -1082,6 +1160,153 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
 }
 
 /******************************************************************************/
+/*   C O P Y   F I L E                                                        */
+/******************************************************************************/
+int copyFile( const char *orig, const char *goal )
+{
+  logFuncCall() ;
+
+  int sysRc = 0 ;
+
+  FILE *origFp = NULL ;
+  FILE *copyFp = NULL ;
+
+  #define CHUNK_LENGTH 1024
+  size_t bytesRead  ;
+  size_t bytesWrite ;
+  unsigned char buffer[1024];
+
+  origFp = fopen( orig, "r" );
+  if( origFp == NULL )
+  {
+    logger( LSTD_OPEN_FILE_FAILED, orig );
+    logger( LSTD_ERRNO_ERR, errno, strerror(errno) );
+    sysRc = errno;
+    goto _door;
+  }
+
+  copyFp = fopen( goal, "w" );
+  if( copyFp == NULL )
+  {
+    logger( LSTD_OPEN_FILE_FAILED, goal );
+    logger( LSTD_ERRNO_ERR, errno, strerror(errno) );
+    sysRc = errno;
+    goto _door;
+  }
+
+  while( ( bytesRead = fread( buffer, 1, sizeof(buffer) , origFp) ) > 0 )
+  {
+    bytesWrite = fwrite( buffer, 1, bytesRead, copyFp );
+    if( bytesWrite < bytesRead )
+    {
+      logger( LSTD_ERR_WRITING_FILE, goal );
+      logger( LSTD_ERRNO_ERR, errno, strerror(errno) );
+      sysRc = errno ;
+      goto _door;
+    }
+  }
+
+  _door:
+
+  if( origFp ) fclose( origFp );
+  if( copyFp ) fclose( copyFp );
+
+  logFuncExit() ;
+
+  return sysRc ;
+}
+
+/******************************************************************************/
+/*   B A C K U P   Q M   I N I                                                */
+/******************************************************************************/
+int copyQmIni( const char *mqDataPath, const char *bckPath )
+{
+  logFuncCall() ;
+
+  int sysRc = 0 ;
+
+  char qmIniOrig[PATH_MAX] ;
+  char qmIniGoal[PATH_MAX] ;
+
+  snprintf( qmIniOrig, PATH_MAX,"%s/qm.ini", mqDataPath) ;
+  snprintf( qmIniGoal, PATH_MAX,"%s/qm.ini", bckPath ) ;
+
+  sysRc = copyFile( qmIniOrig, qmIniGoal );
+
+  _door:
+
+  logFuncExit() ;
+
+  return sysRc ;
+}
+
+/******************************************************************************/
+/*   B A C K U P   S S L   R E P O S I T O R Y                                */
+/******************************************************************************/
+int copySslRepos( const char *mqSslPath, const char *bckPath )
+{
+  logFuncCall() ;
+
+  int sysRc = 0 ;
+
+  char qmSslDir[PATH_MAX] ;
+  char qmSslFileExpr[PATH_MAX] ;
+  char qmSslFile[PATH_MAX] ;
+
+  char qmBckDir[PATH_MAX] ;
+  char qmBckFile[PATH_MAX] ;
+
+  DIR *origDp ;
+  struct dirent *dir;
+
+  snprintf( qmSslDir     , PATH_MAX, "%s", dirname(mqSslPath)  );
+  snprintf( qmSslFileExpr, PATH_MAX, "%s.", basename(mqSslPath) );
+
+  snprintf( qmBckDir, PATH_MAX, "%s/ssl/", bckPath );
+
+  sysRc = mkdirRecursive( qmBckDir, 0775 );     
+  if(sysRc != 0 )                              
+  {                                           
+    logger( LSTD_MAKE_DIR_FAILED, actBckPath );  
+    logger( LSTD_ERRNO_ERR, sysRc, strerror(sysRc) );
+    goto _door;                                 
+  }                                            
+
+  origDp = opendir( qmSslDir );
+  if( origDp == NULL )
+  {
+    logger( LSTD_OPEN_DIR_FAILED, qmSslDir );
+    logger( LSTD_ERRNO_ERR, errno, strerror(errno) );
+    sysRc = errno;
+    goto _door;
+  }
+
+  while( NULL != (orgDirEntry = readdir(orgDir) ) )  // 
+  {                                                  //
+    if( strcmp(orgDirEntry->d_name,  "." ) == 0 ||   // skip directories
+        strcmp(orgDirEntry->d_name,  "..") == 0  )   //
+    {                                                //
+      continue;                                      //
+    }                                                //
+
+    if( strncmp(d_name,qmSsslFileExpr, strlen(qmSslFileExpr)))
+
+  }
+                                                     //
+#if(0)
+  snprintf( qmIniOrig, PATH_MAX,"%s/qm.ini", mqDataPath) ;
+  snprintf( qmIniGoal, PATH_MAX,"%s/qm.ini", bckPath ) ;
+
+  sysRc = copyFile( qmIniOrig, qmIniGoal );
+#endif
+
+  _door:
+
+  logFuncExit() ;
+
+  return sysRc ;
+}
+/******************************************************************************/
 /*   C A L L   Z I P   F I L E                                                */
 /******************************************************************************/
 int callZipFile( const char* zipBin, const char* file )
@@ -1116,17 +1341,61 @@ int callZipFile( const char* zipBin, const char* file )
 }
 
 /******************************************************************************/
-/*   G E T   Q U E U E   M A N A G E R   O B J E C T   S T A T U S            */
+/*   C O N S T R U C T O R   :   Q U E U E   M A N A G E R   O B J E C T     */
 /******************************************************************************/
-MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
+tQmgrObj*  createQmgrObject()
 {
   logFuncCall() ;
 
-  #if MQ_INSTALLATION_PATH_LENGTH > MQ_LOG_PATH_LENGTH 
-    #define ITEM_LENGTH MQ_INSTALLATION_PATH_LENGTH
-  #else
-    #define ITEM_LENGTH MQ_LOG_PATH_LENGTH
-  #endif
+  tQmgrObj *qmgrObj = NULL ;
+
+  qmgrObj = (tQmgrObj*) malloc( sizeof(tQmgrObj) );
+
+  if( qmgrObj == NULL )
+  {
+    logger( LSTD_MEM_ALLOC_ERROR ) ;      
+    goto _door;
+  }
+
+  qmgrObj->compCode = MQCC_OK;
+  qmgrObj->reason   = MQRC_NONE;
+
+  memset( qmgrObj->logPath , MQ_LOG_PATH_LENGTH+1          , 0 );
+  memset( qmgrObj->instPath, MQ_INSTALLATION_PATH_LENGTH+1 , 0 );
+  memset( qmgrObj->sslPath , MQ_SSL_KEY_LIBRARY_LENGTH+1   , 0 );
+  memset( qmgrObj->dataPath, MQ_SSL_KEY_REPOSITORY_LENGTH+1, 0 ); 
+
+  _door:
+  logFuncExit() ;
+
+  return qmgrObj ;
+}
+
+/******************************************************************************/
+/*   C O N S T R U C T O R   :   Q U E U E   M A N A G E R   O B J E C T     */
+/******************************************************************************/
+void  deleteQmgrObject( tQmgrObj *qmgrObj )
+{
+  logFuncCall() ;
+
+  if( qmgrObj == NULL ) goto _door;
+
+  free(qmgrObj);
+
+  _door:
+
+  logFuncExit() ;
+
+  return ;
+}
+
+
+/******************************************************************************/
+/*   G E T   Q U E U E   M A N A G E R   O B J E C T   S T A T U S            */
+/******************************************************************************/
+MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObj* pQmgrObjStatus )
+{
+  logFuncCall() ;
 
   MQLONG mqrc = MQRC_NONE ;  
 
@@ -1151,14 +1420,6 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
 
   int i;
   int j;
-
-  // -------------------------------------------------------
-  // initialize structure
-  // -------------------------------------------------------
-  pQmgrObjStatus->compCode = MQCC_UNKNOWN;
-  pQmgrObjStatus->reason   = MQRC_NONE   ;
-  memset( pQmgrObjStatus->instPath, 0, MQ_INSTALLATION_PATH_LENGTH+1);
-  memset( pQmgrObjStatus->logPath,  0, MQ_LOG_PATH_LENGTH+1         );
 
   // -------------------------------------------------------
   // open bags for MQ Execute
@@ -1198,9 +1459,9 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
                                                   //
   switch( mqrc )                                  //
   {                                               //
-    case MQRC_NONE : break;                       // 
-    {                                             // mqExecPcf includes 
-    default:                                      // evaluating mqErrBag,
+    case MQRC_NONE : break;                       //
+    default:                                      // mqExecPcf includes  
+    {                                             // evaluating mqErrBag,
       pQmgrObjStatus->reason=(MQLONG)selInt32Val; // additional evaluating of 
       goto _door;                                 // MQIASY_REASON is therefor
     }                                             // not necessary
@@ -1242,8 +1503,6 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
       default       : goto _door;                  //
     }                                              //
                                                    //
-#define _LOGTERM_                                  //
-//#undef  _LOGTERM_                                //
 #ifdef  _LOGTERM_                                  //
     char* pBuffer;                                 //
     printf( "%2d selector: %04d %-30.30s type %10.10s",
@@ -1507,21 +1766,12 @@ MQLONG getQmgrStatus( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
 /******************************************************************************/
 /*   G E T   Q U E U E   M A N A G E R   O B J E C T   S T A T U S            */
 /******************************************************************************/
-MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
+MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObj* pQmgrObj )
 {
   logFuncCall() ;
 
-#if(0)
-  #if MQ_INSTALLATION_PATH_LENGTH > MQ_LOG_PATH_LENGTH 
-    #define ITEM_LENGTH MQ_INSTALLATION_PATH_LENGTH
-  #else
-    #define ITEM_LENGTH MQ_LOG_PATH_LENGTH
-  #endif
-#endif
-
   MQLONG mqrc = MQRC_NONE ;  
 
-#if(0)
   MQHBAG cmdBag  = MQHB_UNUSABLE_HBAG;
   MQHBAG respBag = MQHB_UNUSABLE_HBAG;
   MQHBAG attrBag ;
@@ -1536,21 +1786,12 @@ MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
 
   MQINT32 selInt32Val ;
   MQCHAR  selStrVal[ITEM_LENGTH];
-
   MQLONG  selStrLng ;
 
   char  sBuffer[ITEM_LENGTH+1];
 
   int i;
   int j;
-
-  // -------------------------------------------------------
-  // initialize structure
-  // -------------------------------------------------------
-  pQmgrObjStatus->compCode = MQCC_UNKNOWN;
-  pQmgrObjStatus->reason   = MQRC_NONE   ;
-  memset( pQmgrObjStatus->instPath, 0, MQ_INSTALLATION_PATH_LENGTH+1);
-  memset( pQmgrObjStatus->logPath,  0, MQ_LOG_PATH_LENGTH+1         );
 
   // -------------------------------------------------------
   // open bags for MQ Execute
@@ -1570,34 +1811,34 @@ MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
   }
 
   // -------------------------------------------------------
-  // DISPLAY QMSTATUS ALL 
+  // DISPLAY QMGR ALL 
   //   process command in two steps
   //   1. setup the list of arguments MQIACF_ALL = ALL
-  //   2. send a command MQCMD_INQUIRE_Q_MGR_STATUS = DISPLAY QMSTATUS
+  //   2. send a command MQCMD_INQUIRE_Q_MGR = DISPLAY QMGR ALL
   // -------------------------------------------------------
-  mqrc = mqSetInqAttr( cmdBag, MQIACF_ALL );      // set attribute 
-                                                  // to PCF command
-  switch( mqrc )                                  // DISPLAY QMSTATUS ALL
-  {                                               //
-    case MQRC_NONE : break;                       //
-    default: goto _door;                          //
-  }                                               //
-                                                  //
-  mqrc = mqExecPcf( Hconn                     ,   // send a command to 
-                    MQCMD_INQUIRE_Q_MGR_STATUS,   //  the command queue
-                    cmdBag                    ,   //
-                    respBag                  );   //
-                                                  //
-  switch( mqrc )                                  //
-  {                                               //
-    case MQRC_NONE : break;                       // 
-    {                                             // mqExecPcf includes 
-    default:                                      // evaluating mqErrBag,
-      pQmgrObjStatus->reason=(MQLONG)selInt32Val; // additional evaluating of 
-      goto _door;                                 // MQIASY_REASON is therefor
-    }                                             // not necessary
-  }                                               //
-                                                  //
+  mqrc = mqSetInqAttr( cmdBag, MQIACF_ALL ); // set attribute 
+                                             // to PCF command
+  switch( mqrc )                             // DISPLAY QMGR ALL
+  {                                          //
+    case MQRC_NONE : break;                  //
+    default: goto _door;                     //
+  }                                          //
+                                             //
+  mqrc = mqExecPcf( Hconn              ,     // send a command to 
+                    MQCMD_INQUIRE_Q_MGR,     //  the command queue
+                    cmdBag             ,     //
+                    respBag           );     //
+                                             //
+  switch( mqrc )                             //
+  {                                          //
+    case MQRC_NONE : break;                  // 
+    default:                                 // evaluating mqErrBag,
+    {                                        // mqExecPcf includes 
+      pQmgrObj->reason=(MQLONG)selInt32Val;  // additional evaluating of 
+      goto _door;                            // MQIASY_REASON is therefor
+    }                                        // not necessary
+  }                                          //
+                                             //
   // ---------------------------------------------------------
   // count the items in response bag
   // -------------------------------------------------------
@@ -1689,12 +1930,12 @@ MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
         {                                          //  selectors are system
           case MQIASY_COMP_CODE:                   //  selectors
           {                                        //
-            pQmgrObjStatus->compCode = (MQLONG)selInt32Val;
+            pQmgrObj->compCode=(MQLONG)selInt32Val;//
             break;                                 // only mqExec completion 
           }                                        //  code and reason code are 
           case MQIASY_REASON:                      //  interesting for later use
           {                                        // 
-            pQmgrObjStatus->reason = (MQLONG)selInt32Val;
+            pQmgrObj->reason=(MQLONG)selInt32Val;  //
             break;                                 //
           }                                        //
           default :                                //
@@ -1834,14 +2075,9 @@ MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
               // ---------------------------------------------
               switch( childSelector )              // 
               {                                    //
-                case MQCA_INSTALLATION_PATH :      //
+                case MQCA_SSL_KEY_REPOSITORY  :    //
                 {                                  //
-                  strcpy( pQmgrObjStatus->instPath, sBuffer ); 
-                  break;                           //
-                }                                  //
-                case MQCACF_LOG_PATH :             //
-                {                                  //
-                  strcpy( pQmgrObjStatus->logPath, sBuffer ); 
+                  strcpy( pQmgrObj->sslPath, sBuffer ); 
                   break;                           //
                 }                                  //
                 default:                           //
@@ -1883,16 +2119,11 @@ MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObjStatus* pQmgrObjStatus )
   mqCloseBag( &cmdBag );
   mqCloseBag( &respBag );
 
-  if( pQmgrObjStatus->instPath[0] == '\0' )
-  {
-    strcpy( pQmgrObjStatus->instPath, MQ_DEFAULT_INSTALLATION_PATH );
-  }
 
 #ifdef _LOGTERM_
   printf("\n");
 #endif 
 
-#endif
   logFuncExit() ;
   return mqrc ;
 }
