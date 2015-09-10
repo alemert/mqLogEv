@@ -126,7 +126,9 @@ int rcdMqImg( const char* _qmgr, const char* _instPath );
 int mqCopyLog( const char* orgFile, const char* cpyFile );
 int copyFile( const char *src, const char *goal );
 int copyQmIni( const char *origPath, const char *goalPath );
-int copySslRepos( const char *mqSslPath, const char *bckPath );
+int copySslRepos( const char *mqSslPath, 
+                  const char* mqSslRep , 
+                  const char *bckPath );
 int callZipFile( const char* zipBin, const char* file );
 
 tQmgrObj*  createQmgrObject();
@@ -238,6 +240,13 @@ int cleanupLog( const char* qmgrName,  // queue manager name
     default  : goto _door;
   }
 
+  memcpy( pQmgrObj->dataPath, pQmgrObj->sslPath, strlen(pQmgrObj->sslPath) );
+  memcpy( pQmgrObj->sslRep  , 
+          (char*)basename(pQmgrObj->sslPath), 
+          strlen(pQmgrObj->sslPath) );
+  dirname( dirname( pQmgrObj->dataPath ) );
+  dirname( pQmgrObj->sslPath ) ;
+
   // -------------------------------------------------------
   // set trigger on
   // -------------------------------------------------------
@@ -278,8 +287,8 @@ int cleanupLog( const char* qmgrName,  // queue manager name
     printf("=============================================================\n\n");
 #endif
 
-    copyQmIni( dirname( dirname(  pQmgrObj->sslPath ) ), bckPath );
-    copySslRepos( dirname( dirname(  pQmgrObj->sslPath ) ), bckPath );
+    copyQmIni( pQmgrObj->dataPath, bckPath );
+    copySslRepos( pQmgrObj->sslPath, pQmgrObj->sslRep, bckPath );
   }
 
   // -------------------------------------------------------
@@ -1233,8 +1242,6 @@ int copyQmIni( const char *mqDataPath, const char *bckPath )
 
   sysRc = copyFile( qmIniOrig, qmIniGoal );
 
-  _door:
-
   logFuncExit() ;
 
   return sysRc ;
@@ -1243,37 +1250,51 @@ int copyQmIni( const char *mqDataPath, const char *bckPath )
 /******************************************************************************/
 /*   B A C K U P   S S L   R E P O S I T O R Y                                */
 /******************************************************************************/
-int copySslRepos( const char *mqSslPath, const char *bckPath )
+int copySslRepos( const char *mqSslPath, 
+                  const char* mqSslRep , 
+                  const char *bckPath  )
 {
   logFuncCall() ;
 
   int sysRc = 0 ;
 
-  char qmSslDir[PATH_MAX] ;
-  char qmSslFileExpr[PATH_MAX] ;
-  char qmSslFile[PATH_MAX] ;
+  char qmSslDir[PATH_MAX]     ;    // path to SSL Repository 
+  char qmSslFileExpr[PATH_MAX];    // wild card for SSL files i.g. key.*
+  char qmSslFile[PATH_MAX]    ;    // real name of SSL file
 
-  char qmBckDir[PATH_MAX] ;
-  char qmBckFile[PATH_MAX] ;
+  char qmBckDir[PATH_MAX] ;        // path to SSL Backup directory
+  char qmBckFile[PATH_MAX];        // real name of SSL file
 
-  DIR *origDp ;
+  DIR *orgDp ;
   struct dirent *dir;
 
-  snprintf( qmSslDir     , PATH_MAX, "%s", dirname(mqSslPath)  );
-  snprintf( qmSslFileExpr, PATH_MAX, "%s.", basename(mqSslPath) );
+  // -------------------------------------------------------
+  // get original SSL file / directory names
+  // -------------------------------------------------------
+  snprintf( qmSslDir     , PATH_MAX, "%s", (char*)mqSslPath );
+  snprintf( qmSslFileExpr, PATH_MAX, "%s.",(char*)mqSslRep  );
 
+  // -------------------------------------------------------
+  // get backup SSL directory name
+  // -------------------------------------------------------
   snprintf( qmBckDir, PATH_MAX, "%s/ssl/", bckPath );
 
+  // -------------------------------------------------------
+  // create SSL backup directory
+  // -------------------------------------------------------
   sysRc = mkdirRecursive( qmBckDir, 0775 );     
   if(sysRc != 0 )                              
   {                                           
-    logger( LSTD_MAKE_DIR_FAILED, actBckPath );  
+    logger( LSTD_MAKE_DIR_FAILED, qmBckDir );  
     logger( LSTD_ERRNO_ERR, sysRc, strerror(sysRc) );
     goto _door;                                 
   }                                            
 
-  origDp = opendir( qmSslDir );
-  if( origDp == NULL )
+  // -------------------------------------------------------
+  // open original SSL directory
+  // -------------------------------------------------------
+  orgDp = opendir( qmSslDir );
+  if( orgDp == NULL )
   {
     logger( LSTD_OPEN_DIR_FAILED, qmSslDir );
     logger( LSTD_ERRNO_ERR, errno, strerror(errno) );
@@ -1281,24 +1302,25 @@ int copySslRepos( const char *mqSslPath, const char *bckPath )
     goto _door;
   }
 
-  while( NULL != (orgDirEntry = readdir(orgDir) ) )  // 
-  {                                                  //
-    if( strcmp(orgDirEntry->d_name,  "." ) == 0 ||   // skip directories
-        strcmp(orgDirEntry->d_name,  "..") == 0  )   //
-    {                                                //
-      continue;                                      //
-    }                                                //
-
-    if( strncmp(d_name,qmSsslFileExpr, strlen(qmSslFileExpr)))
-
-  }
-                                                     //
-#if(0)
-  snprintf( qmIniOrig, PATH_MAX,"%s/qm.ini", mqDataPath) ;
-  snprintf( qmIniGoal, PATH_MAX,"%s/qm.ini", bckPath ) ;
-
-  sysRc = copyFile( qmIniOrig, qmIniGoal );
-#endif
+  // -------------------------------------------------------
+  // got through original SSL directory
+  // -------------------------------------------------------
+  while( NULL != (dir = readdir(orgDp) ) )  // get each file
+  {                                         //
+    if( dir->d_type  != DT_REG )  // skip directories
+    {                                       //
+      continue;                             //
+    }                                       //
+                                            //
+    if( strncmp( dir->d_name  ,             // ignore all files that do 
+        qmSslFileExpr         ,             //  not match key.*
+        strlen(qmSslFileExpr) ) != 0 )      //
+    {                                       //
+      continue;                          //
+    }                                      //
+    snprintf(qmSslFile,PATH_MAX,"%s/%s",qmSslDir,(char*)dir->d_name);
+  }                                    //
+                                            //
 
   _door:
 
@@ -1364,6 +1386,7 @@ tQmgrObj*  createQmgrObject()
   memset( qmgrObj->instPath, MQ_INSTALLATION_PATH_LENGTH+1 , 0 );
   memset( qmgrObj->sslPath , MQ_SSL_KEY_LIBRARY_LENGTH+1   , 0 );
   memset( qmgrObj->dataPath, MQ_SSL_KEY_REPOSITORY_LENGTH+1, 0 ); 
+  memset( qmgrObj->sslRep  , MQ_SSL_KEY_REPOSITORY_LENGTH+1, 0 ); 
 
   _door:
   logFuncExit() ;

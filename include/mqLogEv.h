@@ -46,9 +46,10 @@ struct sQmgrObj
   MQLONG compCode ;
   MQLONG reason   ;
   MQCHAR logPath [MQ_LOG_PATH_LENGTH+1]         ; // transactional log path
+  MQCHAR dataPath[MQ_SSL_KEY_REPOSITORY_LENGTH+1]; // path to QM.INI 
   MQCHAR instPath[MQ_INSTALLATION_PATH_LENGTH+1]; // installation path
   MQCHAR sslPath[MQ_SSL_KEY_REPOSITORY_LENGTH+1]; // path to SSL repository
-  MQCHAR dataPath[MQ_SSL_KEY_REPOSITORY_LENGTH+1]; // path to QM.INI 
+  MQCHAR sslRep[MQ_SSL_KEY_REPOSITORY_LENGTH+1]; // i.g. "key."
 };
 
 /******************************************************************************/
