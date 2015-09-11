@@ -93,8 +93,15 @@ int main(int argc, const char* argv[] )
   char userData[MQ_PROCESS_USER_DATA_LENGTH+1];
   char **triggArgv = NULL;
   int  triggArgc = 0;
+#if(0)
   const char *bckPath = NULL;
   const char *zipBin  = NULL;
+#endif
+
+  tBackup bck = { .audit   = OFF  , 
+                  .recover = OFF  ,
+                  .path    = NULL ,
+                  .zip     = NULL };
 
   char logDir[PATH_MAX];
   char logName[PATH_MAX+NAME_MAX];
@@ -214,10 +221,7 @@ int main(int argc, const char* argv[] )
     logLevel = logStr2lev( getStrAttr( "loglev" ) );
   }
 
-  if( logLevel == LNA )
-  {
-     logLevel = LOG;
-  }
+  if( logLevel == LNA ) logLevel = LOG; 
 
   snprintf( logName, PATH_MAX+NAME_MAX, "%s/%s.log", logDir, progname );
 
@@ -233,16 +237,18 @@ int main(int argc, const char* argv[] )
   // -------------------------------------------------------
   // get backup path; in general backup path might stay null
   // -------------------------------------------------------
-  bckPath = backupTimeDirName( getStrAttr( "backup" ) ) ;
-  zipBin  = getStrAttr( "zip" );
+  bck.path = backupTimeDirName( getStrAttr( "backup" ) ) ;
+  bck.zip  = getStrAttr( "zip" );
+
+  if( !getFlagAttr("audit")   ) bck.audit   = ON; 
+  if( !getFlagAttr("recover") ) bck.recover = ON; 
 
   // -------------------------------------------------------
   // cleanup the logs
   // -------------------------------------------------------
   sysRc = cleanupLog( qmgrName, 
                       qName   ,
-                      bckPath ,
-                      zipBin );
+                      bck    );
 
   if( sysRc != MQRC_NONE ) goto _door ;
 

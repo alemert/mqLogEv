@@ -41,6 +41,12 @@ extern const char progname[] ;
 /******************************************************************************/
 /*   S T R U C T                                                              */
 /******************************************************************************/
+enum eBackup
+{
+    OFF = 0,
+    ON  = 1
+};
+
 struct sQmgrObj
 {
   MQLONG compCode ;
@@ -52,15 +58,23 @@ struct sQmgrObj
   MQCHAR sslRep[MQ_SSL_KEY_REPOSITORY_LENGTH+1]; // i.g. "key."
 };
 
+struct sBackup
+{
+  enum eBackup audit  ;
+  enum eBackup recover;
+  const char *path ;
+  const char *zip  ;
+};
+
 /******************************************************************************/
 /*   T Y P E S                                                                */
 /******************************************************************************/
 typedef struct sQmgrObj tQmgrObj;
+typedef struct sBackup  tBackup ;
 
 /******************************************************************************/
 /*   P R O T O T Y P E S                                                      */
 /******************************************************************************/
 int cleanupLog( const char* qmgrName,  // queue manager name
                 const char* qName   ,  // logger event name
-                const char* bckPath ,  // backup path 
-                const char* zipBin );  // zip binary
+                tBackup     backup );  // backup path 
