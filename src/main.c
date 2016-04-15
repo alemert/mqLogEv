@@ -453,7 +453,7 @@ const char* backupTimeDirName( const char* base )
   t = time(NULL);
   ts = localtime( &t );
  
-  strftime( strTime, STR_TIME_LENGTH, "%Y-%m-%d_%H:%M:%S", ts );
+  strftime( strTime, STR_TIME_LENGTH, "%Y-%m-%d_%H-%M-%S", ts );
 
   snprintf( bckDir, NAME_MAX, "%s/%s/", base, strTime ); 
 

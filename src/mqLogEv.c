@@ -122,10 +122,11 @@ MQLONG mqCloseDisconnect( MQHCONN  Hcon    ,  // connection handle
 
 int mqOlderLog( const char *log1, const char *log2) ;
 int mqLogName2Id( const char* log );
-int mqHandleLog( const char* logPath , 
-                const char* bckPath  , 
-                const char* oldestLog,
-                const char* zipBin  );
+int mqHandleLog( MQHCONN hConn, 
+                 const char* logPath , 
+                 const char* bckPath  , 
+                 const char* oldestLog,
+                 const char* zipBin  );
 int mqCheckLogName( const char* log) ;
 int rcdMqImg( const char* _qmgr, const char* _instPath );
 
@@ -275,6 +276,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   // -------------------------------------------------------
   if( _bck.audit == ON )                        //
   {                                             // send 
+#if(0)
     sysRc = mqResetQmgrLog(Hcon);               //  RESET QMGR TYPE(ADVANCEDLOG) 
                                                 // to the command server
     switch(sysRc)                               //
@@ -288,8 +290,10 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
       default:                                  //
         goto _door;                             //
     }                                           //
+#endif
                                                 //
-    sysRc = mqHandleLog( pQmgrObj->logPath,     // original log path
+    sysRc = mqHandleLog( HCon             ,     // connection handle for reset
+                         pQmgrObj->logPath,     // original log path
                          bckAuditPath     ,     // path save the logs
                          NULL             ,     // oldest log 
                          _bck.zip        );     // zip binary
@@ -411,7 +415,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
-  sysRc = mqHandleLog( pQmgrObj->logPath, // original log path
+  sysRc = mqHandleLog(0, pQmgrObj->logPath, // original log path
                        NULL             , // no copy
                        oldLog           , // oldest log (keep 
                        NULL            ); // zip binary
@@ -438,7 +442,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
         goto _door;                             //
     }                                           //
                                                 //
-    sysRc = mqHandleLog( pQmgrObj->logPath,     // original log path
+    sysRc = mqHandleLog(0, pQmgrObj->logPath,     // original log path
                          bckRecoverPath   ,     // path save the logs
                          NULL             ,     // oldest log 
                          _bck.zip        );     // zip binary
@@ -740,7 +744,8 @@ int mqLogName2Id( const char* log )
 /*         removed                                                          */
 /*                                                                            */
 /******************************************************************************/
-int mqHandleLog( const char* logPath   , 
+int mqHandleLog( MQHCONN hConn, 
+                 const char* logPath   , 
                  const char* bckPath   , 
                  const char* oldestLog ,
                  const char* zipBin    )
@@ -758,6 +763,9 @@ int mqHandleLog( const char* logPath   ,
   char logPathShort[PATH_MAX];
   char orgCtrlFile[PATH_MAX];
   char bckCtrlFile[PATH_MAX];
+
+  int maxFileId = 0 ;      // highest file id S{id}.LOG
+  int actFileId = 0 ;      // actual file id S{id}.LOG
                   
   // -------------------------------------------------------
   // initialize all directories
@@ -789,14 +797,6 @@ int mqHandleLog( const char* logPath   ,
   }                                                  //
                                                      //
   // -------------------------------------------------------
-  // copy control file
-  // -------------------------------------------------------
-   sysRc = copyFile( orgCtrlFile, bckCtrlFile );
-   if( sysRc != 0 )  goto _door;
- 
-   nicht getestet
-
-  // -------------------------------------------------------
   // list all files in source directory
   // -------------------------------------------------------
   while( NULL != (orgDirEntry = readdir(orgDir) ) )  // 
@@ -812,26 +812,35 @@ int mqHandleLog( const char* logPath   ,
       continue;                                      // transactional logs
     }                                                //
                                                      //
+    actFileId = mqLogName2Id( orgDirEntry->d_name ); //
+    if( actFileId > maxFileId )                      //
+    {                                                //
+      maxFileId = actFileId;                         //
+    }                                                //
+                                                     //
     strcpy( orgFile, logPath );                      // set up absolute source 
     strcat( orgFile, "/" );                          //   file name 
     strcat( orgFile, orgDirEntry->d_name );          //
                                                      //
+    // -----------------------------------------------------
+    // backup path
+    // -----------------------------------------------------
     if( bckPath != NULL )                            //
     {                                                //
-      strcpy( cpyFile, actBckPath );                 // set up absolute goal 
-      strcat( cpyFile, "/" );                        // set up absolute goal 
-      strcat( cpyFile, orgDirEntry->d_name );        //  file name
-                                          //
+      strcpy( cpyFile, actBckPath );                 // set up absolute goal  
+      strcat( cpyFile, "/" );                        //  file name
+      strcat( cpyFile, orgDirEntry->d_name );        //
+                                                     //
       sysRc = mqCopyLog( orgFile, cpyFile );         // copy file
       if( sysRc != 0 ) goto _door;                   //
-                                    //
-      sysRc = callZipFile( zipBin, cpyFile );        //
+                                                     //
+      sysRc = callZipFile( zipBin, cpyFile );        // compress file
       if( sysRc != 0 ) goto _door;                   //
     }                                                //
                                                      //
     if( oldestLog == NULL )                          //
     {                                                //
-      continue;                            //
+      continue;                                      //
     }                                                //
                                                      //
     if( mqOlderLog( orgDirEntry->d_name, oldestLog ) > 0 )
@@ -845,10 +854,53 @@ int mqHandleLog( const char* logPath   ,
       logger(LMQM_ACTIVE_LOG,orgDirEntry->d_name);   //   keep the log
     }                                                //
   }                                                  //
+                                                     //
+  closedir( orgDir );                                //
+                                                     //
+  // -------------------------------------------------------
+  // if transactional logs have been copied, also:
+  //   - reset advance log 
+  //   - copy control file
+  //   - copy additional log file, that might have been 
+  //      created by advance log command
+  // -------------------------------------------------------
+  if( bckPath != NULL )                                //
+  {                                                    //
+    // -----------------------------------------------------
+    // start writing into new log
+    // -----------------------------------------------------
+    sysRc = mqResetQmgrLog(Hcon);                      // send
+                                                       // RESET QMGR ADVANCEDLOG 
+    switch(sysRc)                                      // to the command server
+    {                                                  //
+      case MQRC_NONE:                                  //
+        break;                                         //
+                                                       //
+      case MQRC_CMD_SERVER_NOT_AVAILABLE:              // reset was not possible, 
+        goto _door;                                    //   no further processing
+                                                       //
+      default:                                         //
+        goto _door;                                    //
+    }                                                  //
+        //
+    // -----------------------------------------------------
+    // copy control file
+    // -----------------------------------------------------
+     sysRc = copyFile( orgCtrlFile, bckCtrlFile );
+     if( sysRc != 0 )  goto _door;
 
-  closedir( orgDir );
-
-  
+    // -----------------------------------------------------
+    // copy all other (empty?) files
+    // -----------------------------------------------------
+    for( actFileId = maxFileId; ;actFileId++) 
+    {S0001473.
+      
+      snprintf( fileName, size, "S%0.7d.LOG", actFileId );
+    stat( FileName ); 
+    check if file exsits with stat is missing
+    }
+// cnt = mqLogName2Id( 
+  }
 
   _door:
 
@@ -1224,6 +1276,10 @@ int mqCopyLog( const char* orgFile, const char* cpyFile )
 
 /******************************************************************************/
 /*   C O P Y   F I L E                                                        */
+/*                                                                            */
+/*   description:                                                             */
+/*     copy file kByte by kByte (binary copy)                                 */
+/*                                                                            */
 /******************************************************************************/
 int copyFile( const char *orig, const char *goal )
 {
@@ -1322,8 +1378,8 @@ int copySslRepos( const char *_sslDir , // path to SSL Repository
 
   int sysRc = 0 ;
 
-  char sslFile[PATH_MAX];    // real name of SSL file
-  char bckFile[PATH_MAX];    // real name of SSL file
+  char sslFile[PATH_MAX];    // real name of original SSL file
+  char bckFile[PATH_MAX];    // real name of backup SSL file
 
   DIR *sslDp ;
   struct dirent *sslDirEntry;
