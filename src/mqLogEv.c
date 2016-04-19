@@ -272,6 +272,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
     default        : goto _door;
   }
 
+#if(0)
   // -------------------------------------------------------
   // backup old logs for audit
   // -------------------------------------------------------
@@ -286,6 +287,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
                                                 //
     if( sysRc != 0 ) goto _door;                //
   }                                             //
+#endif
                                                 //
   // -------------------------------------------------------
   // backup configuration and security i.g.
@@ -398,6 +400,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
 
   logger( LMQM_LOG_NAME, "OLDEST", oldLog ) ;
 
+#if(0)
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
@@ -408,10 +411,12 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
                        NULL            );  // zip binary
 
   if( sysRc != 0 ) goto _door;
+#endif
 
   // -------------------------------------------------------
   // backup old logs for recovery
   // -------------------------------------------------------
+  hier weiter, aendern von mqHandle log prototyp
 #if(1)
   if( _bck.recover == ON )                      //
   {                                             // send 
