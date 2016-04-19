@@ -173,6 +173,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   MQLONG sysRc = MQRC_NONE ;
   MQLONG locRc = MQRC_NONE ;
 
+
   snprintf(bckAuditPath,  PATH_MAX,"%s/%s/",_bck.path,BACKUP_AUDIT_SUB_DIR  );
   snprintf(bckRecoverPath,PATH_MAX,"%s/%s/",_bck.path,BACKUP_RECOVER_SUB_DIR);
 
@@ -275,24 +276,9 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   // backup old logs for audit
   // -------------------------------------------------------
   if( _bck.audit == ON )                        //
-  {                                             // send 
-#if(0)
-    sysRc = mqResetQmgrLog(Hcon);               //  RESET QMGR TYPE(ADVANCEDLOG) 
-                                                // to the command server
-    switch(sysRc)                               //
-    {                                           //
-      case MQRC_NONE:                           //
-        break;                                  //
+  {                                             // 
                                                 //
-      case MQRC_CMD_SERVER_NOT_AVAILABLE:       // reset was not possible, 
-        goto _door;                             //   no further processing
-                                                //
-      default:                                  //
-        goto _door;                             //
-    }                                           //
-#endif
-                                                //
-    sysRc = mqHandleLog( HCon             ,     // connection handle for reset
+    sysRc = mqHandleLog( Hcon             ,     // connection handle for reset
                          pQmgrObj->logPath,     // original log path
                          bckAuditPath     ,     // path save the logs
                          NULL             ,     // oldest log 
@@ -415,10 +401,11 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   // -------------------------------------------------------
   // remove old logs
   // -------------------------------------------------------
-  sysRc = mqHandleLog(0, pQmgrObj->logPath, // original log path
-                       NULL             , // no copy
-                       oldLog           , // oldest log (keep 
-                       NULL            ); // zip binary
+  sysRc = mqHandleLog( hConn            ,  // connection handle
+                       pQmgrObj->logPath,  // original log path
+                       NULL             ,  // no copy
+                       oldLog           ,  // oldest log (keep 
+                       NULL            );  // zip binary
 
   if( sysRc != 0 ) goto _door;
 
@@ -442,7 +429,8 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
         goto _door;                             //
     }                                           //
                                                 //
-    sysRc = mqHandleLog(0, pQmgrObj->logPath,     // original log path
+    sysRc = mqHandleLog( hConn            ,     //
+                         pQmgrObj->logPath,     // original log path
                          bckRecoverPath   ,     // path save the logs
                          NULL             ,     // oldest log 
                          _bck.zip        );     // zip binary
@@ -720,28 +708,29 @@ int mqLogName2Id( const char* log )
 /*   C L E A N   T R A N S A C T I O N A L   L O G S                          */
 /*                                                                            */
 /*   attributes:                                                              */
-/*      - logPath:   path to original transactional logs                      */
+/*      - logPath:   absolute path to original transactional logs             */
+/*                   including /../active/                                    */
 /*      - bckPath:   path to backup location. If bckPath == NULL no backup    */
-/*                   will be done, files will be just removed            */
+/*                   will be done, files will be just removed                 */
 /*      - oldestLog: files older then this are not necessary for active work  */
-/*                   and will be removed on logPath location.       */
+/*                   and will be removed on logPath location.                 */
 /*                   if oldesLog == NULL no remove will be done, files will   */
-/*                   just be copied                                       */
-/*      - zipBin:    compress program to use i.g. /bin/zip                 */
+/*                   just be copied                                           */
+/*      - zipBin:    compress program to use i.g. /bin/zip                    */
 /*                                                                            */
 /*   description:                                                             */
 /*      1) create a backup directory on bckPath  ,                            */
 /*         directory should include time stamp in the name with               */
-/*         format YYYY.MM.DD-hh.mm-ss                                        */
+/*         format YYYY.MM.DD-hh.mm-ss                                         */
 /*      2) all transactional logs and the active control file "amqhlctl.lfh"  */
 /*         will be copied to the backup location.                             */
 /*      3) transactional logs on the backup location will be compressed       */
 /*      4) all files older then the oldest log will be removed from the       */
 /*         original location                                                  */
 /*      5) if backup location is null, no backup will be done, only files     */
-/*         older then oldest log will be removed                            */
+/*         older then oldest log will be removed                              */
 /*      6) if oldest log is null just copy will be done, files will not be    */
-/*         removed                                                          */
+/*         removed                                                            */
 /*                                                                            */
 /******************************************************************************/
 int mqHandleLog( MQHCONN hConn, 
@@ -760,7 +749,7 @@ int mqHandleLog( MQHCONN hConn,
   char cpyFile[PATH_MAX]    ;          //
 
   char actBckPath[PATH_MAX];
-  char logPathShort[PATH_MAX];
+  char logPathShort[PATH_MAX];    // path to control file
   char orgCtrlFile[PATH_MAX];
   char bckCtrlFile[PATH_MAX];
 
@@ -770,8 +759,11 @@ int mqHandleLog( MQHCONN hConn,
   // -------------------------------------------------------
   // initialize all directories
   // -------------------------------------------------------
-  snprintf( logPathShort, PATH_MAX, "%s", logPath );
-  dirname( logPathShort );
+  snprintf( logPathShort ,      // cut off 'active' from the end of the path
+            PATH_MAX     ,      // to transactional logs to get 
+            "%s"         ,      // the path to control file
+            logPath     );      // -----
+  dirname( logPathShort );      //  
   snprintf( orgCtrlFile, PATH_MAX, "%s/%s", logPathShort, CONTROL_FILE );
   snprintf( bckCtrlFile, PATH_MAX, "%s/%s", bckPath, CONTROL_FILE );
 
@@ -869,7 +861,7 @@ int mqHandleLog( MQHCONN hConn,
     // -----------------------------------------------------
     // start writing into new log
     // -----------------------------------------------------
-    sysRc = mqResetQmgrLog(Hcon);                      // send
+    sysRc = mqResetQmgrLog( hConn );                   // send
                                                        // RESET QMGR ADVANCEDLOG 
     switch(sysRc)                                      // to the command server
     {                                                  //
@@ -890,17 +882,34 @@ int mqHandleLog( MQHCONN hConn,
      if( sysRc != 0 )  goto _door;
 
     // -----------------------------------------------------
-    // copy all other (empty?) files
+    // copy all other (empty?) files, 
+    //   expected is only one file through advance log reset
     // -----------------------------------------------------
-    for( actFileId = maxFileId; ;actFileId++) 
-    {S0001473.
-      
-      snprintf( fileName, size, "S%0.7d.LOG", actFileId );
-    stat( FileName ); 
-    check if file exsits with stat is missing
-    }
-// cnt = mqLogName2Id( 
-  }
+    for( actFileId = maxFileId; actFileId < 10000000 ; actFileId++ )    
+    {                                     // go through all files, file names
+      snprintf( orgFile        ,          // higher than S9999999.LOG are not
+                PATH_MAX       ,          // possible -> limit of 10000000 
+                "%s/S%07d.LOG" ,          //
+                logPath        ,          // set the original file
+                actFileId     );          //  name
+                                          //
+      snprintf( cpyFile        ,          // set the copy file name
+                PATH_MAX       ,          //
+                "%s/S%07d.LOG" ,          //
+                actBckPath     ,          //
+                actFileId     );          //
+                                          //
+      if( access( orgFile, F_OK ) )       // check if file exists
+      {                                   //
+	mqCopyLog( orgFile, cpyFile );    // copy file
+      }                                   //
+      else                                //
+      {                                   //
+        errno = 0 ;                       // break the loop if no file found
+	break;                            //  the limit in the head of for 
+      }                                   //  loop is just to break the loop
+    }                                     //  if something (unknown) goes 
+  }                                       //  wrong
 
   _door:
 
