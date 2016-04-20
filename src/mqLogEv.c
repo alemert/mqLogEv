@@ -13,8 +13,9 @@
 /*     - rcdMqImg                                                             */
 /*     - mqCopyLog                                                            */
 /*     - copyFile                                                             */
-/*     - copyQmIni                                                */
-/*     - copySslRepos                                    */
+/*     - copyQmIni                                                            */
+/*     - copySslRepos                                                         */
+/*     - copyCatalog                                          */
 /*     - callZipFile                                                          */
 /*     - createQmgrObject                                                     */
 /*     - deleteQmgrObject                                                     */
@@ -101,7 +102,7 @@
 #define BACKUP_CONFIG_SUB_DIR   "config"
 
 #define CONTROL_FILE     "amqhlctl.lfh" 
-
+#define CATALOG_FILE     "QMQMOBJCAT"
 /******************************************************************************/
 /*                               S T R U C T S                                */
 /******************************************************************************/
@@ -137,6 +138,7 @@ int copySslRepos( const char *mqSslPath,
                   const char* mqSslRep , 
                   const char *bckPath );
 int callZipFile( const char* zipBin, const char* file );
+int copyCatalog( const char *mqDataPath, const char *bckPath );
 
 tQmgrObj*  createQmgrObject();
 void  deleteQmgrObject( tQmgrObj *qmgrObj );
@@ -167,14 +169,14 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
 
   char bckSslPath[PATH_MAX+1];       // path to SSL Backup directory
   char bckCfgPath[PATH_MAX+1];       // path to SSL Backup directory
-  char bckAuditPath[PATH_MAX+1];     // path for audit backup 
+//char bckAuditPath[PATH_MAX+1];     // path for audit backup 
   char bckRecoverPath[PATH_MAX+1];   // path for recovery backup 
 
   MQLONG sysRc = MQRC_NONE ;
   MQLONG locRc = MQRC_NONE ;
 
 
-  snprintf(bckAuditPath,  PATH_MAX,"%s/%s/",_bck.path,BACKUP_AUDIT_SUB_DIR  );
+//snprintf(bckAuditPath,  PATH_MAX,"%s/%s/",_bck.path,BACKUP_AUDIT_SUB_DIR  );
   snprintf(bckRecoverPath,PATH_MAX,"%s/%s/",_bck.path,BACKUP_RECOVER_SUB_DIR);
 
   // -------------------------------------------------------
@@ -309,6 +311,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
     copySslRepos( pQmgrObj->sslPath,            // backup whole SSl directory
                   pQmgrObj->sslRep ,            //
 		  bckSslPath      );            //
+    copyCatalog( pQmgrObj->dataPath, bckCfgPath );// backup object catalog
   }                                             //
                                                 //
   // -------------------------------------------------------
@@ -416,10 +419,9 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   // -------------------------------------------------------
   // backup old logs for recovery
   // -------------------------------------------------------
-  hier weiter, aendern von mqHandle log prototyp
 #if(1)
-  if( _bck.recover == ON )                      //
-  {                                             // send 
+//if( _bck.recover == ON )                      //
+//{                                             // send 
     sysRc = mqResetQmgrLog(Hcon);               //  RESET QMGR TYPE(ADVANCEDLOG) 
                                                 // to the command server
     switch(sysRc)                               //
@@ -434,14 +436,14 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
         goto _door;                             //
     }                                           //
                                                 //
-    sysRc = mqHandleLog( hConn            ,     //
+    sysRc = mqHandleLog( Hcon             ,     //
                          pQmgrObj->logPath,     // original log path
                          bckRecoverPath   ,     // path save the logs
-                         NULL             ,     // oldest log 
+                         oldLog           ,     // oldest log 
                          _bck.zip        );     // zip binary
                                                 //
     if( sysRc != 0 ) goto _door;                //
-  }                                             //
+ //                                             //
 #endif
 
   _door:
@@ -755,12 +757,18 @@ int mqHandleLog( MQHCONN hConn,
 
   char actBckPath[PATH_MAX];
   char logPathShort[PATH_MAX];    // path to control file
-  char orgCtrlFile[PATH_MAX];
-  char bckCtrlFile[PATH_MAX];
+//char orgCtrlFile[PATH_MAX];
+//char bckCtrlFile[PATH_MAX];
 
   int maxFileId = 0 ;      // highest file id S{id}.LOG
   int actFileId = 0 ;      // actual file id S{id}.LOG
-                  
+
+  if( oldestLog == NULL )   // null pointer exception
+  {
+    sysRc = 1 ;
+    goto _door;
+  }
+
   // -------------------------------------------------------
   // initialize all directories
   // -------------------------------------------------------
@@ -769,8 +777,10 @@ int mqHandleLog( MQHCONN hConn,
             "%s"         ,      // the path to control file
             logPath     );      // -----
   dirname( logPathShort );      //  
+#if(0)
   snprintf( orgCtrlFile, PATH_MAX, "%s/%s", logPathShort, CONTROL_FILE );
   snprintf( bckCtrlFile, PATH_MAX, "%s/%s", bckPath, CONTROL_FILE );
+#endif
 
   orgDir = opendir(logPath);                         // open source directory 
   if( orgDir == NULL )                               //   for list all files
@@ -820,30 +830,25 @@ int mqHandleLog( MQHCONN hConn,
     strcat( orgFile, orgDirEntry->d_name );          //
                                                      //
     // -----------------------------------------------------
-    // backup path
+    // handle all archive logs 
     // -----------------------------------------------------
-    if( bckPath != NULL )                            //
-    {                                                //
-      strcpy( cpyFile, actBckPath );                 // set up absolute goal  
-      strcat( cpyFile, "/" );                        //  file name
-      strcat( cpyFile, orgDirEntry->d_name );        //
+    if(mqOlderLog(orgDirEntry->d_name,oldestLog)>0)  // log is not needed
+    {                                                //  any more
+      if( bckPath != NULL )                          // archiving is on
+      {                                              //
+        strcpy( cpyFile, actBckPath );               // set up absolute goal  
+        strcat( cpyFile, "/" );                      //  file name
+        strcat( cpyFile, orgDirEntry->d_name );      //
                                                      //
-      sysRc = mqCopyLog( orgFile, cpyFile );         // copy file
-      if( sysRc != 0 ) goto _door;                   //
+        sysRc = mqCopyLog( orgFile, cpyFile );       // copy file
+        if( sysRc != 0 ) goto _door;                 //
                                                      //
-      sysRc = callZipFile( zipBin, cpyFile );        // compress file
-      if( sysRc != 0 ) goto _door;                   //
-    }                                                //
+        sysRc = callZipFile( zipBin, cpyFile );      // compress file
+        if( sysRc != 0 ) goto _door;                 //
+      }                                              //
                                                      //
-    if( oldestLog == NULL )                          //
-    {                                                //
-      continue;                                      //
-    }                                                //
-                                                     //
-    if( mqOlderLog( orgDirEntry->d_name, oldestLog ) > 0 )
-    {                                                // log is not needed any more
-      logger(LMQM_INACTIVE_LOG,orgDirEntry->d_name); //   remove it
-      unlink(orgFile);                               //
+      logger(LMQM_INACTIVE_LOG,orgDirEntry->d_name); // remove the file even 
+      unlink(orgFile);                               // if archiving off
       usleep(1000);                                  //
     }                                                //
     else                                             //
@@ -880,11 +885,13 @@ int mqHandleLog( MQHCONN hConn,
         goto _door;                                    //
     }                                                  //
         //
+#if(0)
     // -----------------------------------------------------
     // copy control file
     // -----------------------------------------------------
      sysRc = copyFile( orgCtrlFile, bckCtrlFile );
      if( sysRc != 0 )  goto _door;
+#endif
 
     // -----------------------------------------------------
     // copy all other (empty?) files, 
@@ -1449,6 +1456,26 @@ int copySslRepos( const char *_sslDir , // path to SSL Repository
 
   return sysRc ;
 }
+
+/******************************************************************************/
+/*   C O P Y   O B J E C T   C A T A L O G                                    */
+/******************************************************************************/
+int copyCatalog( const char *mqDataPath, const char *bckPath )
+{
+  char orgCtrlFile[PATH_MAX];
+  char bckCtrlFile[PATH_MAX];
+
+  int sysRc ;
+
+  sysRc = mkdirRecursive( bckPath, 0775 );     
+
+  snprintf( orgCtrlFile, PATH_MAX, "%s/qmanager/%s",mqDataPath, CATALOG_FILE );
+  snprintf( bckCtrlFile, PATH_MAX, "%s/%s",         bckPath,    CATALOG_FILE );
+
+  sysRc = copyFile( orgCtrlFile, bckCtrlFile );
+  return sysRc ;
+}
+
 /******************************************************************************/
 /*   C A L L   Z I P   F I L E                                                */
 /******************************************************************************/
