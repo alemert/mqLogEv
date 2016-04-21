@@ -29,7 +29,7 @@
 /*                             D E B U G G I N G                              */
 /******************************************************************************/
 #define _LOGTERM_                              
-//#undef  _LOGTERM_                           
+#undef  _LOGTERM_                           
 
 /******************************************************************************/
 /*                              I N C L U D E S                               */
@@ -419,7 +419,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   // -------------------------------------------------------
   // backup old logs for recovery
   // -------------------------------------------------------
-#if(1)
+#if(0)
 //if( _bck.recover == ON )                      //
 //{                                             // send 
     sysRc = mqResetQmgrLog(Hcon);               //  RESET QMGR TYPE(ADVANCEDLOG) 
@@ -435,6 +435,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
       default:                                  //
         goto _door;                             //
     }                                           //
+#endif
                                                 //
     sysRc = mqHandleLog( Hcon             ,     //
                          pQmgrObj->logPath,     // original log path
@@ -444,7 +445,6 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
                                                 //
     if( sysRc != 0 ) goto _door;                //
  //                                             //
-#endif
 
   _door:
 
@@ -757,17 +757,20 @@ int mqHandleLog( MQHCONN hConn,
 
   char actBckPath[PATH_MAX];
   char logPathShort[PATH_MAX];    // path to control file
-//char orgCtrlFile[PATH_MAX];
-//char bckCtrlFile[PATH_MAX];
+  char orgCtrlFile[PATH_MAX];
+  char bckCtrlFile[PATH_MAX];
 
-  int maxFileId = 0 ;      // highest file id S{id}.LOG
-  int actFileId = 0 ;      // actual file id S{id}.LOG
+  int actLogId    = 0;      // actual file id S{id}.LOG
+  int maxLogId    = 0;      // highest file id S{id}.LOG
+  int oldestLogId = 0;      // oldest file id S{id}.LOG
 
   if( oldestLog == NULL )   // null pointer exception
   {
     sysRc = 1 ;
     goto _door;
   }
+
+  oldestLogId = mqLogName2Id( oldestLog ); 
 
   // -------------------------------------------------------
   // initialize all directories
@@ -777,11 +780,10 @@ int mqHandleLog( MQHCONN hConn,
             "%s"         ,      // the path to control file
             logPath     );      // -----
   dirname( logPathShort );      //  
-#if(0)
+                                //
   snprintf( orgCtrlFile, PATH_MAX, "%s/%s", logPathShort, CONTROL_FILE );
   snprintf( bckCtrlFile, PATH_MAX, "%s/%s", bckPath, CONTROL_FILE );
-#endif
-
+                                                     //
   orgDir = opendir(logPath);                         // open source directory 
   if( orgDir == NULL )                               //   for list all files
   {                                                  //
@@ -817,12 +819,6 @@ int mqHandleLog( MQHCONN hConn,
     if( mqCheckLogName( orgDirEntry->d_name ) != 0 ) // file does not match 
     {                                                // naming standards for 
       continue;                                      // transactional logs
-    }                                                //
-                                                     //
-    actFileId = mqLogName2Id( orgDirEntry->d_name ); //
-    if( actFileId > maxFileId )                      //
-    {                                                //
-      maxFileId = actFileId;                         //
     }                                                //
                                                      //
     strcpy( orgFile, logPath );                      // set up absolute source 
@@ -884,44 +880,63 @@ int mqHandleLog( MQHCONN hConn,
       default:                                         //
         goto _door;                                    //
     }                                                  //
-        //
-#if(0)
+                                                       //
     // -----------------------------------------------------
     // copy control file
     // -----------------------------------------------------
-     sysRc = copyFile( orgCtrlFile, bckCtrlFile );
-     if( sysRc != 0 )  goto _door;
-#endif
-
+     sysRc = copyFile( orgCtrlFile, bckCtrlFile );     //
+     if( sysRc != 0 )  goto _door;                     //
+                                                       //
     // -----------------------------------------------------
-    // copy all other (empty?) files, 
-    //   expected is only one file through advance log reset
+    // copy all other (active?) files, 
     // -----------------------------------------------------
-    for( actFileId = maxFileId; actFileId < 10000000 ; actFileId++ )    
+    for( actLogId=oldestLogId; actLogId<10000000; actLogId++ )    
     {                                     // go through all files, file names
       snprintf( orgFile        ,          // higher than S9999999.LOG are not
                 PATH_MAX       ,          // possible -> limit of 10000000 
                 "%s/S%07d.LOG" ,          //
                 logPath        ,          // set the original file
-                actFileId     );          //  name
+                actLogId      );          //  name
                                           //
       snprintf( cpyFile        ,          // set the copy file name
                 PATH_MAX       ,          //
                 "%s/S%07d.LOG" ,          //
                 actBckPath     ,          //
-                actFileId     );          //
+                actLogId      );          //
                                           //
-      if( access( orgFile, F_OK ) )       // check if file exists
+      if( access( orgFile, F_OK ) == 0 )  // check if file exists
       {                                   //
 	mqCopyLog( orgFile, cpyFile );    // copy file
       }                                   //
-      else                                //
-      {                                   //
-        errno = 0 ;                       // break the loop if no file found
-	break;                            //  the limit in the head of for 
-      }                                   //  loop is just to break the loop
-    }                                     //  if something (unknown) goes 
-  }                                       //  wrong
+      else                                // break the loop if no file found
+      {                                   //  the limit in the head of for 
+        errno = 0 ;                       //  loop is just to break the loop
+	break;                            //  if something (unknown) goes 
+      }                                   //  wrong
+    }                                     //
+    maxLogId = actLogId ;                 //
+                                          //
+    // -----------------------------------------------------
+    // zip all other (active?) files
+    // -----------------------------------------------------
+    for( actLogId=oldestLogId; actLogId<maxLogId; actLogId++ )    
+    {                                     //
+      snprintf( orgFile        ,          // copying and compressing
+                PATH_MAX       ,          //  of active files is not done
+                "%s/S%07d.LOG" ,          //  in one loop, since copy should
+                logPath        ,          //  be done as quick as possible to
+                actLogId      );          //  achieve high consistence of 
+                                          //  the copied files.
+      snprintf( cpyFile        ,          // 
+                PATH_MAX       ,          //
+                "%s/S%07d.LOG" ,          //
+                actBckPath     ,          //
+                actLogId      );          //
+                                          //
+      callZipFile( zipBin, cpyFile );     //
+    }                                     //
+                                          //
+  }                                       //
 
   _door:
 
@@ -2046,8 +2061,6 @@ MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObj* pQmgrObj )
       default       : goto _door;                  //
     }                                              //
                                                    //
-#define _LOGTERM_                                  //
-//#undef  _LOGTERM_                                //
 #ifdef  _LOGTERM_                                  //
     char* pBuffer;                                 //
     printf( "%2d selector: %04d %-30.30s type %10.10s",
