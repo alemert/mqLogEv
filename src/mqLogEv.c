@@ -97,7 +97,9 @@
   #define ITEM_LENGTH  MQ_SSL_KEY_REPOSITORY_LENGTH
 #endif
 
+#if(0)
 #define BACKUP_AUDIT_SUB_DIR    "audit"
+#endif
 #define BACKUP_RECOVER_SUB_DIR  "recover"
 #define BACKUP_CONFIG_SUB_DIR   "config"
 
@@ -182,7 +184,7 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   // -------------------------------------------------------
   // connect to queue manager
   // -------------------------------------------------------
-  sysRc =  mqConn( (char*) _qmgrName,      // queue manager          
+  sysRc =  mqConn( (char*) _qmgrName,     // queue manager          
                            &Hcon  );      // connection handle            
                                           //
   switch( sysRc )                         //
@@ -476,6 +478,8 @@ int cleanupLog( const char* _qmgrName,  // queue manager name
   {
     sysRc = locRc ;
   }
+
+  // -> remove old logs  
 
   deleteQmgrObject( pQmgrObj );
 
@@ -1477,6 +1481,8 @@ int copySslRepos( const char *_sslDir , // path to SSL Repository
 /******************************************************************************/
 int copyCatalog( const char *mqDataPath, const char *bckPath )
 {
+  logFuncCall() ;
+
   char orgCtrlFile[PATH_MAX];
   char bckCtrlFile[PATH_MAX];
 
@@ -1488,6 +1494,9 @@ int copyCatalog( const char *mqDataPath, const char *bckPath )
   snprintf( bckCtrlFile, PATH_MAX, "%s/%s",         bckPath,    CATALOG_FILE );
 
   sysRc = copyFile( orgCtrlFile, bckCtrlFile );
+
+  logFuncExit() ;
+
   return sysRc ;
 }
 

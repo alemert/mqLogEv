@@ -240,8 +240,10 @@ int main(int argc, const char* argv[] )
   bck.path = backupTimeDirName( getStrAttr( "backup" ) ) ;
   bck.zip  = getStrAttr( "zip" );
 
+#if(0)
   if( !getFlagAttr("audit")   ) bck.audit   = ON; 
   if( !getFlagAttr("recover") ) bck.recover = ON; 
+#endif
 
   // -------------------------------------------------------
   // cleanup the logs
