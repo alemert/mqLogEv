@@ -101,7 +101,9 @@ int main(int argc, const char* argv[] )
   tBackup bck = { .audit   = OFF  , 
                   .recover = OFF  ,
                   .path    = NULL ,
-                  .zip     = NULL };
+                  .zip     = NULL ,
+                  .cleanunp = BCK_GENERATION_KEEP };
+                  
 
   char logDir[PATH_MAX];
   char logName[PATH_MAX+NAME_MAX];
@@ -235,7 +237,7 @@ int main(int argc, const char* argv[] )
   }
 
   // -------------------------------------------------------
-  // get backup path; in general backup path might stay null
+  // get backup path; in general backup path might be null
   // -------------------------------------------------------
   bck.path = backupTimeDirName( getStrAttr( "backup" ) ) ;
   bck.zip  = getStrAttr( "zip" );
@@ -253,6 +255,19 @@ int main(int argc, const char* argv[] )
                       bck    );
 
   if( sysRc != MQRC_NONE ) goto _door ;
+
+  // -------------------------------------------------------
+  // cleanup old backups
+  // -------------------------------------------------------
+  if( bck.path != NULL )
+  {
+    if( !getFlagAttr("cleanup") ) bck.cleanunp = getIntAttr("cleanup");
+
+    sysRc = cleanupBackup( getStrAttr("backup"),
+                           bck.path            ,
+                           bck.cleanunp        );
+  }
+
 
 _door :
 
@@ -457,7 +472,7 @@ const char* backupTimeDirName( const char* base )
  
   strftime( strTime, STR_TIME_LENGTH, "%Y-%m-%d_%H-%M-%S", ts );
 
-  snprintf( bckDir, NAME_MAX, "%s/%s/", base, strTime ); 
+  snprintf( bckDir, NAME_MAX, "%s/%s", base, strTime ); 
 
   return (const char*) bckDir ;
 }

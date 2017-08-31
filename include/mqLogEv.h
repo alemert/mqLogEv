@@ -36,7 +36,8 @@ extern const char progname[] ;
 /******************************************************************************/
 /*   D E F I N E S                                                            */
 /******************************************************************************/
-#define LOGGER_QUEUE "SYSTEM.ADMIN.LOGGER.EVENT"
+#define LOGGER_QUEUE        "SYSTEM.ADMIN.LOGGER.EVENT"
+#define BCK_GENERATION_KEEP 3
 
 /******************************************************************************/
 /*   S T R U C T                                                              */
@@ -64,6 +65,7 @@ struct sBackup
   enum eBackup recover;
   const char *path ;
   const char *zip  ;
+  int cleanunp ;
 };
 
 /******************************************************************************/
@@ -78,3 +80,8 @@ typedef struct sBackup  tBackup ;
 int cleanupLog( const char* qmgrName,  // queue manager name
                 const char* qName   ,  // logger event name
                 tBackup     backup );  // backup path 
+
+int cleanupBackup( const char* _basePath   ,  // base backup path
+                   const char* _timePath   ,  // base backup path + time stamp
+                   int         _generation ); // generations to keep
+
