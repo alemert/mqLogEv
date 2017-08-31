@@ -1399,25 +1399,25 @@ int rcdMqImg( const char* _qmgr, const char* _instPath )
       logger( LSYS_MULTILINE_START, "RCDMQIMG" );
 
       i = 0;
-      while( 1 ) // read for ever
-      { // 
+      while( 1 )                              // read for ever
+      {                               // 
         sysRc = read( STDIN_FILENO, &c, 1 ); // read from the pipe
         if( (int) sysRc == 0 ) break; // stop if EOF (will work only 
-        pipeBuff[i] = c; //       on nonblocked device)
-        if( c == '\n' ) // if eol
-        { //
+        pipeBuff[i] = c;       //       on nonblocked device)
+        if( c == '\n' )             // if eol
+        {                               //
           pipeBuff[i] = '\0'; // replace '\n' by '\0' 
-          i = 0; // start new line
+          i = 0;                     // start new line
           logger( LSYS_MULTILINE_ADD, pipeBuff );
-          continue; // write full line to log
-        } //
-        i++; //
-      } //        
-      if( c != '\n' ) // if last line is not ended by '\n'
-      { // 
+          continue;         // write full line to log
+        }                     //
+        i++;                     //
+      }                     //        
+      if( c != '\n' )     // if last line is not ended by '\n'
+      {                           // 
         pipeBuff[i] = '\0'; // write it to log file
         logger( LSYS_MULTILINE_ADD, pipeBuff );
-      }
+      }                          //
       logger( LSYS_MULTILINE_END, "RCDMQIMG" );
 
       // ---------------------------------------------------

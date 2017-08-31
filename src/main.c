@@ -107,8 +107,8 @@ int main(int argc, const char* argv[] )
 
   char logDir[PATH_MAX];
   char logName[PATH_MAX+NAME_MAX];
-//int logLevel = LNA ;   // log level not available
-  int logLevel = DBG ;   // log level not available
+  int logLevel = LNA ;   // log level not available
+//int logLevel = DBG ;   // log level not available
 
   int sysRc = 0 ;
   MQLONG compCode = MQCC_UNKNOWN;
@@ -439,7 +439,7 @@ int userData2argv( char *uData, char*** pArgv )
 }
 
 /******************************************************************************/
-/*  free trigger arguments                  */
+/*  free trigger arguments                                                    */
 /******************************************************************************/
 void freeTriggArgv( char*** _argv )
 {
@@ -455,7 +455,7 @@ void freeTriggArgv( char*** _argv )
 }
 
 /******************************************************************************/
-/*  backup time directory name       */
+/*  backup time directory name                                                */
 /******************************************************************************/
 const char* backupTimeDirName( const char* base )
 {
@@ -464,6 +464,8 @@ const char* backupTimeDirName( const char* base )
   struct tm *ts ;
   char  strTime[STR_TIME_LENGTH+1];
   char  *bckDir ;
+
+  if( base == NULL ) return base ;
 
   bckDir = (char*) malloc( sizeof(char)*(NAME_MAX+1));
 
