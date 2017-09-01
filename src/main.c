@@ -146,7 +146,8 @@ int main(int argc, const char* argv[] )
   if( strlen(argv[1]) != sizeof(MQTMC2) )   
   {                                        
     sysRc = handleCmdLn( argc, argv ) ;   
-    if( sysRc != 0 ) goto _door ;        
+    if( sysRc != 0 ) goto _cmdln ;
+
     if( getStrAttr( "queue" ) )
     {
       memcpy( qName ,  getStrAttr( "queue" ), strlen( getStrAttr( "queue" ) ));
@@ -278,6 +279,8 @@ int main(int argc, const char* argv[] )
   _door :
 
   logger( LSTD_PRG_STOP, program_invocation_short_name  );
+
+  _cmdln :
 
   return sysRc ;
 }
