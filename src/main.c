@@ -33,9 +33,12 @@
 // ---------------------------------------------------------
 // system
 // ---------------------------------------------------------
+#define _GNU_SOURCE
+
 #include <string.h>
 #include <regex.h>
 #include <time.h>
+#include <errno.h>
 
 // ---------------------------------------------------------
 // MQ
@@ -261,7 +264,10 @@ int main(int argc, const char* argv[] )
   // -------------------------------------------------------
   if( bck.path != NULL )
   {
-    if( !getFlagAttr("cleanup") ) bck.cleanunp = getIntAttr("cleanup");
+    if( !getFlagAttr("cleanup") )
+    {
+      bck.cleanunp = getIntAttr("cleanup");
+    }
 
     sysRc = cleanupBackup( getStrAttr("backup"),
                            bck.path            ,
@@ -269,7 +275,9 @@ int main(int argc, const char* argv[] )
   }
 
 
-_door :
+  _door :
+
+  logger( LSTD_PRG_STOP, program_invocation_short_name  );
 
   return sysRc ;
 }

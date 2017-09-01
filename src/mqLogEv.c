@@ -171,8 +171,8 @@ MQLONG getQmgrObject( MQHCONN Hconn, tQmgrObj* pQmgrObjStatus );
 
 /******************************************************************************/
 int cleanupLog( const char* _qmgrName, // queue manager name
-                const char* _qName, // logger event name
-                tBackup _bck ) // backup properties
+                const char* _qName,    // logger event name
+                tBackup _bck )         // backup properties
 {
   logFuncCall( );
 
@@ -197,7 +197,14 @@ int cleanupLog( const char* _qmgrName, // queue manager name
 
 
   //snprintf(bckAuditPath,  PATH_MAX,"%s/%s/",_bck.path,BACKUP_AUDIT_SUB_DIR  );
-  snprintf( bckRecoverPath, PATH_MAX, "%s/%s/", _bck.path, BACKUP_RECOVER_SUB_DIR );
+  bckRecoverPath[0] = '\0';
+  if( _bck.path != NULL )
+  {
+    snprintf( bckRecoverPath, PATH_MAX, 
+                              "%s/%s/", 
+                              _bck.path, 
+                              BACKUP_RECOVER_SUB_DIR );
+  }
 
   // -------------------------------------------------------
   // connect to queue manager
@@ -1051,78 +1058,78 @@ int mqHandleLog( MQHCONN hConn,
                            //
   snprintf( orgCtrlFile, PATH_MAX, "%s/%s", logPathShort, CONTROL_FILE );
   snprintf( bckCtrlFile, PATH_MAX, "%s/%s", bckPath, CONTROL_FILE );
-                                          //
-  orgDir = opendir( logPath );            // open the source directory 
-  if( orgDir == NULL )                    //   to list all files
-  {                                       //
-    logger(LSTD_OPEN_DIR_FAILED,logPath); //
-    logger( LSTD_ERRNO_ERR,errno,strerror( errno ) ); //
-    sysRc = errno;                        //
-    goto _door;                           //
-  }                                       //
-                                          //
-  if( bckPath != NULL )                   //
-  {                                       //
+                                                 //
+  orgDir = opendir( logPath );                   // open the source directory 
+  if( orgDir == NULL )                           //   to list all files
+  {                                              //
+    logger(LSTD_OPEN_DIR_FAILED,logPath);        //
+    logger( LSTD_ERRNO_ERR,errno,strerror(errno) ); 
+    sysRc = errno;                               //
+    goto _door;                                  //
+  }                                              //
+                                                 //
+  if( *bckPath != '\0' )                         //
+  {                                              //
     sprintf( actBckPath, "%s/active", bckPath ); //
-    sysRc = mkdirRecursive( actBckPath, 0775 ); //
-    if( sysRc != 0 )                      // create goal directory 
-    {                                     //
-      logger( LSTD_MAKE_DIR_FAILED, actBckPath ); //
+    sysRc = mkdirRecursive( actBckPath, 0775 );  //
+    if( sysRc != 0 )                             // create goal directory 
+    {                                            //
+      logger( LSTD_MAKE_DIR_FAILED, actBckPath );
       logger( LSTD_ERRNO_ERR, sysRc, strerror( sysRc ) );
-      goto _door;                         //
-    }                                     //
-  }                                       //
-                                          //
+      goto _door;                                //
+    }                                            //
+  }                                              //
+                                                 //
   // -------------------------------------------------------
   // list all files in source directory
   // -------------------------------------------------------
   while( NULL != (orgDirEntry = readdir( orgDir )) ) // 
-  { //
-    if( strcmp( orgDirEntry->d_name, "." ) == 0 || // skip directory . and ..
-        strcmp( orgDirEntry->d_name, ".." ) == 0 ) //
-    { //
-      continue; //
-    } //
-    //
+  {                                                  //
+    if( strcmp( orgDirEntry->d_name, "." ) == 0 ||   // skip directory . and ..
+        strcmp( orgDirEntry->d_name, ".." ) == 0 )   //
+    {                                                //
+      continue;                                      //
+    }                                                //
+                                                     //
     if( mqCheckLogName( orgDirEntry->d_name ) != 0 ) // file does not match 
-    { // naming standards for 
-      continue; // transactional logs
-    } //
-    //
-    strcpy( orgFile, logPath ); // set up absolute source 
-    strcat( orgFile, "/" ); //   file name 
-    strcat( orgFile, orgDirEntry->d_name ); //
-    //
+    {                                                // naming standards for 
+      continue;                                      // transactional logs
+    }                                                //
+                                                     //
+    strcpy( orgFile, logPath );                      // set up absolute source 
+    strcat( orgFile, "/" );                          //   file name 
+    strcat( orgFile, orgDirEntry->d_name );          //
+                                                     //
     // -----------------------------------------------------
     // handle all archive logs 
     // -----------------------------------------------------
-    if( mqOlderLog( orgDirEntry->d_name, oldestLog ) > 0 ) // log is not needed
-    { //  any more
-      if( bckPath != NULL ) // archiving is on
-      { //
-        strcpy( cpyFile, actBckPath ); // set up absolute goal  
-        strcat( cpyFile, "/" ); //  file name
-        strcat( cpyFile, orgDirEntry->d_name ); //
-        //
-        sysRc = mqCopyLog( orgFile, cpyFile ); // copy file
-        if( sysRc != 0 ) goto _door; //
-        //
-        sysRc = callZipFile( zipBin, cpyFile ); // compress file
-        if( sysRc != 0 ) goto _door; //
-      } //
-      //
-      logger( LMQM_INACTIVE_LOG, orgDirEntry->d_name ); // remove the file even 
-      unlink( orgFile ); // if archiving off
-      usleep( 1000 ); //
-    } //
-    else //
-    { //
-      logger( LMQM_ACTIVE_LOG, orgDirEntry->d_name ); //   keep the log
-    } //
-  } //
-  //
-  closedir( orgDir ); //
-  //
+    if(mqOlderLog(orgDirEntry->d_name,oldestLog)>0)  // log is not needed
+    {                                                //  any more
+      if( *bckPath != '\0' )                         // archiving is on
+      {                                              //
+        strcpy( cpyFile, actBckPath );               // set up absolute goal  
+        strcat( cpyFile, "/" );                      //  file name
+        strcat( cpyFile, orgDirEntry->d_name );      //
+                                                     //
+        sysRc = mqCopyLog( orgFile, cpyFile );       // copy file
+        if( sysRc != 0 ) goto _door;                 //
+                                                     //
+        sysRc = callZipFile( zipBin, cpyFile );      // compress file
+          if( sysRc != 0 ) goto _door;               //
+      }                                              //
+                                                     //
+      logger(LMQM_INACTIVE_LOG,orgDirEntry->d_name); // remove the file even 
+      unlink( orgFile );                             // if archiving off
+      usleep( 1000 );                                //
+    }                                                //
+    else                                             //
+    {                                                //
+      logger(LMQM_ACTIVE_LOG,orgDirEntry->d_name);   //   keep the log
+    }                                                //
+  }                                                  //
+                                                     //
+  closedir( orgDir );                                //
+                                                     //
   // -------------------------------------------------------
   // if transactional logs have been copied, also:
   //   - reset advance log 
@@ -1130,81 +1137,81 @@ int mqHandleLog( MQHCONN hConn,
   //   - copy additional log file, that might have been 
   //      created by advance log command
   // -------------------------------------------------------
-  if( bckPath != NULL ) //
-  { //
+  if( bckPath[0] != '\0' )                           //
+  {                           //
     // -----------------------------------------------------
     // start writing into new log
     // -----------------------------------------------------
-    sysRc = mqResetQmgrLog( hConn ); // send
-    // RESET QMGR ADVANCEDLOG 
+    sysRc = mqResetQmgrLog( hConn ); // send RESET QMGR ADVANCEDLOG 
+                                      //
     switch( sysRc ) // to the command server
-    { //
+    {               //
       case MQRC_NONE: //
-        break; //
-        //
+        break;   //
+                        //
       case MQRC_CMD_SERVER_NOT_AVAILABLE: // reset was not possible, 
         goto _door; //   no further processing
-        //
+                  //
       default: //
         goto _door; //
-    } //
-    //
+    }               //
+                  //
     // -----------------------------------------------------
     // copy control file
     // -----------------------------------------------------
     sysRc = copyFile( orgCtrlFile, bckCtrlFile ); //
     if( sysRc != 0 ) goto _door; //
-    //
+                //
     // -----------------------------------------------------
     // copy all other (active?) files, 
     // -----------------------------------------------------
     for( actLogId = oldestLogId; actLogId < 10000000; actLogId++ )
-    { // go through all files, file names
+    {               // go through all files, file names
       snprintf( orgFile, // higher than S9999999.LOG are not
                 PATH_MAX, // possible -> limit of 10000000 
                 "%s/S%07d.LOG", //
                 logPath, // set the original file
                 actLogId ); //  name
-      //
+              //
       snprintf( cpyFile, // set the copy file name
                 PATH_MAX, //
                 "%s/S%07d.LOG", //
                 actBckPath, //
                 actLogId ); //
-      //
+                  //
       if( access( orgFile, F_OK ) == 0 ) // check if file exists
-      { //
+      {           //
         mqCopyLog( orgFile, cpyFile ); // copy file
-      } //
-      else // break the loop if no file found
-      { //  the limit in the head of for 
+      }           //
+      else     // break the loop if no file found
+      {           //  the limit in the head of for 
         errno = 0; //  loop is just to break the loop
-        break; //  if something (unknown) goes 
-      } //  wrong
-    } //
+        break;   //  if something (unknown) goes 
+      }         //  wrong
+    }           //
     maxLogId = actLogId; //
-    //
+                //
     // -----------------------------------------------------
     // zip all other (active?) files
     // -----------------------------------------------------
     for( actLogId = oldestLogId; actLogId < maxLogId; actLogId++ )
-    { //
+    {   //
       snprintf( orgFile, // copying and compressing
                 PATH_MAX, //  of active files is not done
                 "%s/S%07d.LOG", //  in one loop, since copy should
                 logPath, //  be done as quick as possible to
                 actLogId ); //  achieve high consistence of 
-      //  the copied files.
+                //  the copied files.
       snprintf( cpyFile, // 
                 PATH_MAX, //
                 "%s/S%07d.LOG", //
                 actBckPath, //
                 actLogId ); //
-      //
+                  //
       callZipFile( zipBin, cpyFile ); //
-    } //
-    //
-  } //
+    }               //
+                      //
+  }                         //
 
 _door:
 
