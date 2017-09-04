@@ -13,3 +13,4 @@ ver 2.02.00.000  no audit backup
                  rotating log file solved
                  get libraries from pirmary installation
 ver 2.02.01.000  fix: no backup if backup dir not set
+ver 2.02.02.000  imporved logging

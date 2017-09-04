@@ -646,7 +646,14 @@ int cleanupBackup( const char* _basePath, // base backup path
     }                                            //
                                                  //
     rmRecrusive( dirList[oldestIx].name );       //
-    dirList[oldestIx].name[0]='\0';
+    if( sysRc != 0 )                             //
+    {                                            //
+      logger( LSTD_ERR_REMOVE_DIR, dirList[oldestIx].name );
+      logger( LSTD_ERRNO_ERR, sysRc, strerror( sysRc ) );
+      sysRc = errno;                             //
+      goto _door;                                //
+    }                                            //
+    dirList[oldestIx].name[0]='\0';              //
   }                                              //
 
   closedir( dir );
@@ -1647,6 +1654,15 @@ _door:
   if( origFp ) fclose( origFp );
   if( copyFp ) fclose( copyFp );
 
+  if( sysRc == 0)
+  {
+    logger( LSTD_FILE_COPIED, orig, goal );
+  }
+  else 
+  {
+    logger( LSTD_FILE_COPY_ERR, orig, goal );
+  }
+
   logFuncExit( );
 
   return sysRc;
@@ -1769,6 +1785,12 @@ int copyCatalog( const char *mqDataPath, const char *bckPath )
   int sysRc;
 
   sysRc = mkdirRecursive( bckPath, 0775 );
+  if( sysRc != 0 )
+  {
+    logger( LSTD_MAKE_DIR_FAILED, bckPath );
+    logger( LSTD_ERRNO_ERR, errno, strerror( errno ) );
+  }
+
 
   snprintf( orgCtrlFile, PATH_MAX, "%s/qmanager/%s", mqDataPath, CATALOG_FILE );
   snprintf( bckCtrlFile, PATH_MAX, "%s/%s", bckPath, CATALOG_FILE );
