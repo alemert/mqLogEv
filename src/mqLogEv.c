@@ -645,10 +645,14 @@ int cleanupBackup( const char* _basePath, // base backup path
       continue;                                  //
     }                                            //
                                                  //
-    rmRecrusive( dirList[oldestIx].name );       //
-    if( sysRc != 0 )                             //
+    sysRc=rmRecrusive(dirList[oldestIx].name);   //
+    if( sysRc == 0 )                             //
     {                                            //
-      logger( LSTD_ERR_REMOVE_DIR, dirList[oldestIx].name );
+      logger( LSTD_REMOVE_DIR_OK, dirList[oldestIx].name ); 
+    }                                            //
+    else                                         //
+    {                                            //
+      logger( LSTD_REMOVE_DIR_ERR, dirList[oldestIx].name );
       logger( LSTD_ERRNO_ERR, sysRc, strerror( sysRc ) );
       sysRc = errno;                             //
       goto _door;                                //
@@ -733,7 +737,7 @@ int rmRecrusive( const char* _path )
       sysRc = rmRecrusive( fullFileName );   //
       if( sysRc != 0 )                       //
       {                                      //
-	logger( LSTD_ERR_REMOVE_DIR, fullFileName );
+	logger( LSTD_REMOVE_DIR_ERR, fullFileName );
         logger( LSTD_ERRNO_ERR, sysRc, strerror( sysRc ) );
         sysRc = errno;                       //
 	goto _door;                          //
@@ -742,7 +746,7 @@ int rmRecrusive( const char* _path )
     sysRc = rmdir(path);                     //
     if( sysRc != 0 )                         //
     {                                        //
-      logger( LSTD_ERR_REMOVE_DIR, path );   //
+      logger( LSTD_REMOVE_DIR_ERR, path );   //
       logger( LSTD_ERRNO_ERR, sysRc, strerror( sysRc ) );
       sysRc = errno;                         //
       goto _door;                            //
