@@ -1,0 +1,3 @@
+[submodule "mk.inc"]
+	path = mk.inc
+	url = https://github.com/alemert/mk.inc
